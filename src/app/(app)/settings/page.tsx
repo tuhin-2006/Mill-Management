@@ -196,7 +196,7 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="currency">Currency Code</Label>
                   <Input
@@ -227,7 +227,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="flex justify-end pt-2">
-                <Button type="submit" variant="primary" isLoading={isSavingSettings} className="gap-2">
+                <Button type="submit" variant="primary" isLoading={isSavingSettings} className="gap-2 w-full sm:w-auto h-10 sm:h-9">
                   <Save className="h-4 w-4" />
                   <span>Save Configuration</span>
                 </Button>
@@ -288,7 +288,7 @@ export default function SettingsPage() {
                   type="submit"
                   variant="primary"
                   isLoading={isChangingPassword}
-                  className="gap-2"
+                  className="gap-2 w-full sm:w-auto h-10 sm:h-9"
                 >
                   <KeyRound className="h-4 w-4" />
                   <span>Update Password</span>

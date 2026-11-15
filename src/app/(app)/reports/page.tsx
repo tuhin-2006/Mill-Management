@@ -130,12 +130,12 @@ export default function ReportsPage() {
         title="History & Reports"
         description="Comprehensive expense analysis, monthly statistics, and audit reports."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <Button
               variant="outline"
               size="sm"
               onClick={handleExportMemberBalancesCSV}
-              className="gap-2 text-xs"
+              className="gap-2 text-xs flex-1 sm:flex-initial h-9"
             >
               <FileSpreadsheet className="h-4 w-4" />
               <span>Export Member Balances</span>
@@ -144,7 +144,7 @@ export default function ReportsPage() {
               variant="primary"
               size="sm"
               onClick={handleExportFullCSV}
-              className="gap-2 text-xs"
+              className="gap-2 text-xs flex-1 sm:flex-initial h-9"
             >
               <Download className="h-4 w-4" />
               <span>Export Period Meals</span>
@@ -156,25 +156,25 @@ export default function ReportsPage() {
       {/* Date Filter Card */}
       <Card>
         <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row items-end gap-3">
-            <div className="space-y-1 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
+            <div className="space-y-1 flex-1 sm:flex-initial">
               <Label htmlFor="rep-start" className="text-xs">From Date</Label>
               <Input
                 id="rep-start"
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="h-9 text-xs"
+                className="h-9 text-xs w-full sm:w-auto"
               />
             </div>
-            <div className="space-y-1 w-full sm:w-auto">
+            <div className="space-y-1 flex-1 sm:flex-initial">
               <Label htmlFor="rep-end" className="text-xs">To Date</Label>
               <Input
                 id="rep-end"
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="h-9 text-xs"
+                className="h-9 text-xs w-full sm:w-auto"
               />
             </div>
             <Button
@@ -184,7 +184,7 @@ export default function ReportsPage() {
                 setStartDate(firstDayOfMonth);
                 setEndDate(today);
               }}
-              className="h-9 text-xs"
+              className="h-9 text-xs w-full sm:w-auto"
             >
               Reset to This Month
             </Button>
@@ -193,49 +193,49 @@ export default function ReportsPage() {
       </Card>
 
       {/* Period Statistics Overview */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="p-4 bg-card rounded-xl border border-border">
-          <span className="text-[10px] font-semibold uppercase text-muted-foreground">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
+        <div className="p-3.5 sm:p-4 bg-card rounded-xl border border-border">
+          <span className="text-[10px] font-semibold uppercase text-muted-foreground truncate block">
             Total Meals
           </span>
-          <p className="text-xl font-bold text-foreground mt-1">{totalMeals}</p>
+          <p className="text-lg sm:text-xl font-bold text-foreground mt-1 truncate">{totalMeals}</p>
         </div>
-        <div className="p-4 bg-card rounded-xl border border-border">
-          <span className="text-[10px] font-semibold uppercase text-muted-foreground">
+        <div className="p-3.5 sm:p-4 bg-card rounded-xl border border-border">
+          <span className="text-[10px] font-semibold uppercase text-muted-foreground truncate block">
             Total Lunch
           </span>
-          <p className="text-xl font-bold text-amber-600 dark:text-amber-400 mt-1">
+          <p className="text-lg sm:text-xl font-bold text-amber-600 dark:text-amber-400 mt-1 truncate">
             {totalLunch}
           </p>
         </div>
-        <div className="p-4 bg-card rounded-xl border border-border">
-          <span className="text-[10px] font-semibold uppercase text-muted-foreground">
+        <div className="p-3.5 sm:p-4 bg-card rounded-xl border border-border">
+          <span className="text-[10px] font-semibold uppercase text-muted-foreground truncate block">
             Total Dinner
           </span>
-          <p className="text-xl font-bold text-indigo-500 mt-1">{totalDinner}</p>
+          <p className="text-lg sm:text-xl font-bold text-indigo-500 mt-1 truncate">{totalDinner}</p>
         </div>
-        <div className="p-4 bg-card rounded-xl border border-border">
-          <span className="text-[10px] font-semibold uppercase text-muted-foreground">
+        <div className="p-3.5 sm:p-4 bg-card rounded-xl border border-border">
+          <span className="text-[10px] font-semibold uppercase text-muted-foreground truncate block">
             Meal Expense
           </span>
-          <p className="text-xl font-bold text-rose-600 dark:text-rose-400 mt-1">
+          <p className="text-lg sm:text-xl font-bold text-rose-600 dark:text-rose-400 mt-1 truncate">
             {formatBDT(totalMealExpense)}
           </p>
         </div>
-        <div className="p-4 bg-card rounded-xl border border-border">
-          <span className="text-[10px] font-semibold uppercase text-muted-foreground">
+        <div className="p-3.5 sm:p-4 bg-card rounded-xl border border-border">
+          <span className="text-[10px] font-semibold uppercase text-muted-foreground truncate block">
             Total Deposits
           </span>
-          <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">
+          <p className="text-lg sm:text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-1 truncate">
             {formatBDT(totalDeposits)}
           </p>
         </div>
-        <div className="p-4 bg-card rounded-xl border border-border">
-          <span className="text-[10px] font-semibold uppercase text-muted-foreground">
-            Net Fund Balance
+        <div className="p-3.5 sm:p-4 bg-card rounded-xl border border-border">
+          <span className="text-[10px] font-semibold uppercase text-muted-foreground truncate block">
+            Net Balance
           </span>
           <p
-            className={`text-xl font-bold mt-1 ${
+            className={`text-lg sm:text-xl font-bold mt-1 truncate ${
               totalNetBalance >= 0
                 ? "text-emerald-600 dark:text-emerald-400"
                 : "text-destructive"
@@ -248,11 +248,12 @@ export default function ReportsPage() {
 
       {/* Member Financial Totals Table */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Member Financial Standing (All-Time Audit)</CardTitle>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-semibold">Member Financial Standing (All-Time Audit)</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm text-left">
               <thead className="text-xs uppercase bg-muted/50 text-muted-foreground border-b border-border">
                 <tr>
@@ -265,7 +266,7 @@ export default function ReportsPage() {
               </thead>
               <tbody className="divide-y divide-border">
                 {memberSummaries.map((m) => (
-                  <tr key={m.id} className="hover:bg-muted/30">
+                  <tr key={m.id} className="hover:bg-muted/30 transition-colors">
                     <td className="py-3 px-4 font-semibold text-foreground">{m.name}</td>
                     <td className="py-3 px-4 text-center font-medium">{m.total_meals}</td>
                     <td className="py-3 px-4 text-right text-muted-foreground">
@@ -287,6 +288,47 @@ export default function ReportsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile Phone Cards View */}
+          <div className="md:hidden space-y-2.5">
+            {memberSummaries.map((m) => {
+              const isPositive = m.balance >= 0;
+              return (
+                <div
+                  key={m.id}
+                  className="p-3.5 rounded-xl border border-border bg-card/60 shadow-2xs space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-foreground text-sm">{m.name}</span>
+                    <span
+                      className={`text-sm font-bold ${
+                        isPositive
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-destructive"
+                      }`}
+                    >
+                      {formatBDT(m.balance)}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-1.5 p-2 rounded-lg bg-muted/40 text-xs text-center border border-border/40">
+                    <div>
+                      <span className="text-[10px] text-muted-foreground block">Meals</span>
+                      <span className="font-semibold text-foreground">{m.total_meals}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-muted-foreground block">Cost</span>
+                      <span className="font-semibold text-muted-foreground">{formatBDT(m.total_meal_cost)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-muted-foreground block">Deposited</span>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">{formatBDT(m.total_deposited)}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </CardContent>
       </Card>

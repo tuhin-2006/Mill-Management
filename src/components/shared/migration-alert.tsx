@@ -199,12 +199,12 @@ export function MigrationAlert({ isTableMissing }: { isTableMissing: boolean }) 
   };
 
   return (
-    <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-5 text-foreground mb-6 shadow-sm">
-      <div className="flex items-start gap-3.5">
-        <div className="rounded-lg bg-amber-500/20 p-2.5 text-amber-600 dark:text-amber-400 shrink-0">
+    <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3.5 sm:p-5 text-foreground mb-6 shadow-sm">
+      <div className="flex items-start gap-3 sm:gap-3.5">
+        <div className="rounded-lg bg-amber-500/20 p-2 sm:p-2.5 text-amber-600 dark:text-amber-400 shrink-0">
           <Database className="h-5 w-5" />
         </div>
-        <div className="flex-1 space-y-2">
+        <div className="flex-1 space-y-2 min-w-0">
           <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
             Database Setup Required (সুপাবেস ডেটাবেস টেবিল তৈরি করা প্রয়োজন)
           </h4>
@@ -214,12 +214,12 @@ export function MigrationAlert({ isTableMissing }: { isTableMissing: boolean }) 
             <code className="font-mono text-xs">deposits</code>,{" "}
             <code className="font-mono text-xs">settings</code>) তৈরি করা হয়নি। নিচের বাটনে ক্লিক করে সম্পূর্ণ SQL স্ক্রিপ্ট কপি করে Supabase SQL Editor-এ একবার Run করলেই সব স্বয়ংক্রিয়ভাবে প্রস্তুত হয়ে যাবে।
           </p>
-          <div className="pt-2 flex flex-wrap items-center gap-2.5">
+          <div className="pt-2 flex flex-wrap items-center gap-2 sm:gap-2.5">
             <Button
               variant="primary"
               size="sm"
               onClick={handleCopy}
-              className="h-8 text-xs gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
+              className="h-8 text-xs gap-1.5 bg-amber-600 hover:bg-amber-700 text-white w-full sm:w-auto"
             >
               {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
               {copied ? "SQL Copied to Clipboard!" : "Copy Full SQL Script"}
@@ -229,7 +229,7 @@ export function MigrationAlert({ isTableMissing }: { isTableMissing: boolean }) 
               href="https://supabase.com/dashboard/project/hnmvuopdpubdlsveojrq/sql/new"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border text-xs font-medium hover:bg-muted/60 transition-colors"
+              className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-lg border border-border text-xs font-medium hover:bg-muted/60 transition-colors w-full sm:w-auto"
             >
               <span>Open Supabase SQL Editor</span>
               <ExternalLink className="h-3 w-3 text-muted-foreground" />

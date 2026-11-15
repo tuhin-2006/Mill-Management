@@ -301,30 +301,30 @@ export default function DailyMealEntryPage() {
 
       {/* Date & Schedule Selector Bar */}
       <Card>
-        <CardContent className="p-4 md:p-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <label htmlFor="meal-date-picker" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+        <CardContent className="p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 sm:gap-4">
+            <div className="space-y-1.5">
+              <label htmlFor="meal-date-picker" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
                 Select Meal Date
               </label>
-              <div className="flex items-center gap-3">
-                <div className="relative">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <div className="relative w-full sm:w-auto">
                   <input
                     id="meal-date-picker"
                     type="date"
                     value={selectedDate}
                     onChange={(e) => handleDateChange(e.target.value)}
-                    className="h-10 px-3 rounded-lg border border-border bg-card text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
+                    className="h-10 px-3 w-full sm:w-auto rounded-lg border border-border bg-card text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
                   />
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Badge variant={isFriday ? "secondary" : "default"}>
                     {weekday}
                   </Badge>
                   {isFriday && (
                     <span className="text-xs text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1">
-                      <Info className="h-3.5 w-3.5" />
-                      Friday: Lunch Only (Dinner Disabled)
+                      <Info className="h-3.5 w-3.5 shrink-0" />
+                      <span>Friday: Lunch Only</span>
                     </span>
                   )}
                 </div>
@@ -332,7 +332,7 @@ export default function DailyMealEntryPage() {
             </div>
 
             {/* Existing Record Indicator */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 self-start sm:self-center">
               {hasExistingRecord ? (
                 <Badge variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-400 text-xs px-2.5 py-1">
                   Existing Record Loaded
@@ -350,8 +350,8 @@ export default function DailyMealEntryPage() {
       {/* Unsaved Changes Banner */}
       {isDirty && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs shadow-xs animate-in fade-in slide-in-from-top-1">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="flex items-start sm:items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5 sm:mt-0" />
             <div>
               <span className="font-bold">
                 ⚠️ আপনার পরিবর্তনগুলো এখনও সেভ করা হয়নি! (Unsaved Changes)
@@ -366,7 +366,7 @@ export default function DailyMealEntryPage() {
             size="sm"
             variant="primary"
             onClick={handleSave}
-            className="h-8 text-xs px-3.5 shadow-xs shrink-0 self-end sm:self-auto"
+            className="h-8 text-xs px-3.5 shadow-xs shrink-0 w-full sm:w-auto"
           >
             <Save className="h-3.5 w-3.5 mr-1" />
             <span>Review & Save</span>
@@ -439,253 +439,404 @@ export default function DailyMealEntryPage() {
               No members found. Please run the SQL migration or add members in the Members page.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="text-xs uppercase bg-muted/50 text-muted-foreground border-b border-border">
-                  <tr>
-                    <th className="py-3 px-4">Member</th>
-                    <th className="py-3 px-4 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <Sun className="h-3.5 w-3.5 text-amber-500" />
-                        <span>Lunch (দুপুর)</span>
-                      </div>
-                    </th>
-                    <th className="py-3 px-4 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <Moon className="h-3.5 w-3.5 text-indigo-400" />
-                        <span>Dinner (রাত)</span>
-                      </div>
-                    </th>
-                    <th className="py-3 px-4 text-center">Total Meals</th>
-                    <th className="py-3 px-4 text-right">Daily Cost</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {members.map((member, index) => {
-                    const current = mealSelections[member.id] || { lunch: 0, dinner: 0 };
-                    const memberTotalMeals = current.lunch + (isFriday ? 0 : current.dinner);
-                    const memberCost = memberTotalMeals * effectiveMealPrice;
-                    const isInactive = member.status === "inactive";
-                    const isHovered = hoveredMemberId === member.id;
-                    const hasMeals = memberTotalMeals > 0;
+            <>
+              {/* Desktop / Tablet Table View */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs uppercase bg-muted/50 text-muted-foreground border-b border-border">
+                    <tr>
+                      <th className="py-3 px-4">Member</th>
+                      <th className="py-3 px-4 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <Sun className="h-3.5 w-3.5 text-amber-500" />
+                          <span>Lunch (দুপুর)</span>
+                        </div>
+                      </th>
+                      <th className="py-3 px-4 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <Moon className="h-3.5 w-3.5 text-indigo-400" />
+                          <span>Dinner (রাত)</span>
+                        </div>
+                      </th>
+                      <th className="py-3 px-4 text-center">Total Meals</th>
+                      <th className="py-3 px-4 text-right">Daily Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {members.map((member, index) => {
+                      const current = mealSelections[member.id] || { lunch: 0, dinner: 0 };
+                      const memberTotalMeals = current.lunch + (isFriday ? 0 : current.dinner);
+                      const memberCost = memberTotalMeals * effectiveMealPrice;
+                      const isInactive = member.status === "inactive";
+                      const isHovered = hoveredMemberId === member.id;
+                      const hasMeals = memberTotalMeals > 0;
 
-                    return (
-                      <tr
-                        key={member.id}
-                        onMouseEnter={() => setHoveredMemberId(member.id)}
-                        onMouseLeave={() => setHoveredMemberId(null)}
-                        className={`transition-colors border-l-2 ${
-                          isHovered
-                            ? "bg-primary/10 border-l-primary"
-                            : hasMeals
-                            ? "bg-primary/5 border-l-primary/60"
-                            : "border-l-transparent hover:bg-muted/20"
-                        } ${isInactive ? "opacity-60 bg-muted/10" : ""}`}
-                      >
-                        <td className="py-3 px-4 font-medium text-foreground">
-                          <div className="flex items-center gap-2.5">
-                            <span className="text-[11px] text-muted-foreground w-4 text-right">
-                              #{index + 1}
-                            </span>
-                            <div className="h-8 w-8 rounded-full bg-primary/10 text-primary font-bold flex items-center justify-center text-xs shrink-0 border border-primary/20">
-                              {member.name.slice(0, 2).toUpperCase()}
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="font-semibold text-foreground text-sm">
-                                  {member.name}
-                                </span>
-                                {isInactive && (
-                                  <Badge variant="secondary" className="text-[10px]">
-                                    Inactive
-                                  </Badge>
-                                )}
-                              </div>
-                              <span className="text-[11px] text-muted-foreground">
-                                {memberTotalMeals > 0
-                                  ? `${memberTotalMeals} meal${memberTotalMeals > 1 ? "s" : ""} selected`
-                                  : "No meals today"}
+                      return (
+                        <tr
+                          key={member.id}
+                          onMouseEnter={() => setHoveredMemberId(member.id)}
+                          onMouseLeave={() => setHoveredMemberId(null)}
+                          className={`transition-colors border-l-2 ${
+                            isHovered
+                              ? "bg-primary/10 border-l-primary"
+                              : hasMeals
+                              ? "bg-primary/5 border-l-primary/60"
+                              : "border-l-transparent hover:bg-muted/20"
+                          } ${isInactive ? "opacity-60 bg-muted/10" : ""}`}
+                        >
+                          <td className="py-3 px-4 font-medium text-foreground">
+                            <div className="flex items-center gap-2.5">
+                              <span className="text-[11px] text-muted-foreground w-4 text-right">
+                                #{index + 1}
                               </span>
+                              <div className="h-8 w-8 rounded-full bg-primary/10 text-primary font-bold flex items-center justify-center text-xs shrink-0 border border-primary/20">
+                                {member.name.slice(0, 2).toUpperCase()}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-foreground text-sm">
+                                    {member.name}
+                                  </span>
+                                  {isInactive && (
+                                    <Badge variant="secondary" className="text-[10px]">
+                                      Inactive
+                                    </Badge>
+                                  )}
+                                </div>
+                                <span className="text-[11px] text-muted-foreground">
+                                  {memberTotalMeals > 0
+                                    ? `${memberTotalMeals} meal${memberTotalMeals > 1 ? "s" : ""} selected`
+                                    : "No meals today"}
+                                </span>
+                              </div>
                             </div>
-                          </div>
-                        </td>
+                          </td>
 
-                        {/* Lunch Button / Counter */}
-                        <td className="py-3 px-4 text-center">
+                          {/* Lunch Button / Counter */}
+                          <td className="py-3 px-4 text-center">
+                            {current.lunch === 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => handleSetQuantity(member.id, "lunch", 1)}
+                                className="inline-flex items-center justify-center h-8.5 px-3 rounded-lg text-xs font-semibold bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border transition-all cursor-pointer"
+                              >
+                                0 (Off)
+                              </button>
+                            ) : (
+                              <div className="inline-flex items-center rounded-lg bg-amber-600 text-white shadow-xs p-0.5 border border-amber-500">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSetQuantity(member.id, "lunch", current.lunch - 1)}
+                                  className="h-7.5 w-6.5 flex items-center justify-center rounded-md hover:bg-black/20 text-white font-bold transition-colors cursor-pointer"
+                                  title="Decrease (-1 meal/guest)"
+                                >
+                                  <Minus className="h-3 w-3" />
+                                </button>
+                                <div className="px-2 py-0.5 text-xs font-bold flex items-center gap-1 min-w-[70px] justify-center select-none">
+                                  <span>{current.lunch} Meal{current.lunch > 1 ? "s" : ""}</span>
+                                  {current.lunch > 1 && (
+                                    <span className="text-[10px] bg-black/30 px-1.5 py-0.2 rounded-full font-medium">
+                                      +{current.lunch - 1} Guest
+                                    </span>
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSetQuantity(member.id, "lunch", current.lunch + 1)}
+                                  className="h-7.5 w-6.5 flex items-center justify-center rounded-md hover:bg-black/20 text-white font-bold transition-colors cursor-pointer"
+                                  title="Add Guest / Extra Meal (+1)"
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Dinner Button / Counter (Disabled on Friday) */}
+                          <td className="py-3 px-4 text-center">
+                            {isFriday ? (
+                              <span className="inline-flex items-center justify-center h-8.5 px-3 rounded-lg text-xs font-medium text-muted-foreground/50 bg-muted/30 border border-border/40 select-none">
+                                Closed (Friday)
+                              </span>
+                            ) : current.dinner === 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => handleSetQuantity(member.id, "dinner", 1)}
+                                className="inline-flex items-center justify-center h-8.5 px-3 rounded-lg text-xs font-semibold bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border transition-all cursor-pointer"
+                              >
+                                0 (Off)
+                              </button>
+                            ) : (
+                              <div className="inline-flex items-center rounded-lg bg-indigo-600 text-white shadow-xs p-0.5 border border-indigo-500">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSetQuantity(member.id, "dinner", current.dinner - 1)}
+                                  className="h-7.5 w-6.5 flex items-center justify-center rounded-md hover:bg-black/20 text-white font-bold transition-colors cursor-pointer"
+                                  title="Decrease (-1 meal/guest)"
+                                >
+                                  <Minus className="h-3 w-3" />
+                                </button>
+                                <div className="px-2 py-0.5 text-xs font-bold flex items-center gap-1 min-w-[70px] justify-center select-none">
+                                  <span>{current.dinner} Meal{current.dinner > 1 ? "s" : ""}</span>
+                                  {current.dinner > 1 && (
+                                    <span className="text-[10px] bg-black/30 px-1.5 py-0.2 rounded-full font-medium">
+                                      +{current.dinner - 1} Guest
+                                    </span>
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSetQuantity(member.id, "dinner", current.dinner + 1)}
+                                  className="h-7.5 w-6.5 flex items-center justify-center rounded-md hover:bg-black/20 text-white font-bold transition-colors cursor-pointer"
+                                  title="Add Guest / Extra Meal (+1)"
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Total Meals for Member */}
+                          <td className="py-3 px-4 text-center font-bold text-foreground">
+                            {memberTotalMeals}
+                          </td>
+
+                          {/* Cost for Member */}
+                          <td className="py-3 px-4 text-right font-medium text-muted-foreground">
+                            {formatBDT(memberCost)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Phone Dedicated Card Layout */}
+              <div className="md:hidden space-y-3">
+                {members.map((member, index) => {
+                  const current = mealSelections[member.id] || { lunch: 0, dinner: 0 };
+                  const memberTotalMeals = current.lunch + (isFriday ? 0 : current.dinner);
+                  const memberCost = memberTotalMeals * effectiveMealPrice;
+                  const isInactive = member.status === "inactive";
+                  const hasMeals = memberTotalMeals > 0;
+
+                  return (
+                    <div
+                      key={member.id}
+                      className={`p-3.5 rounded-xl border transition-colors space-y-3 ${
+                        hasMeals
+                          ? "border-primary/40 bg-primary/5"
+                          : "border-border bg-card/60"
+                      } ${isInactive ? "opacity-60" : ""}`}
+                    >
+                      {/* Member Header */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="h-8 w-8 rounded-full bg-primary/10 text-primary font-bold flex items-center justify-center text-xs shrink-0 border border-primary/20">
+                            {member.name.slice(0, 2).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-semibold text-foreground text-sm truncate">
+                                {member.name}
+                              </span>
+                              {isInactive && (
+                                <Badge variant="secondary" className="text-[10px] shrink-0">
+                                  Inactive
+                                </Badge>
+                              )}
+                            </div>
+                            <span className="text-[11px] text-muted-foreground block truncate">
+                              #{index + 1} • {memberTotalMeals} meal{memberTotalMeals !== 1 ? "s" : ""} selected
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <span className="font-bold text-foreground text-sm block">
+                            {formatBDT(memberCost)}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {memberTotalMeals} × {formatBDT(effectiveMealPrice)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Lunch & Dinner Controls (2 columns on mobile) */}
+                      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/50">
+                        {/* Lunch Control */}
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                            <Sun className="h-3 w-3 text-amber-500 shrink-0" />
+                            <span>Lunch (দুপুর)</span>
+                          </div>
                           {current.lunch === 0 ? (
                             <button
                               type="button"
                               onClick={() => handleSetQuantity(member.id, "lunch", 1)}
-                              className="inline-flex items-center justify-center h-8.5 px-3 rounded-lg text-xs font-semibold bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border transition-all cursor-pointer"
+                              className="w-full h-9 rounded-lg text-xs font-semibold bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border transition-all cursor-pointer flex items-center justify-center"
                             >
                               0 (Off)
                             </button>
                           ) : (
-                            <div className="inline-flex items-center rounded-lg bg-amber-600 text-white shadow-xs p-0.5 border border-amber-500">
+                            <div className="flex items-center justify-between w-full rounded-lg bg-amber-600 text-white shadow-xs p-0.5 border border-amber-500 h-9">
                               <button
                                 type="button"
                                 onClick={() => handleSetQuantity(member.id, "lunch", current.lunch - 1)}
-                                className="h-7.5 w-6.5 flex items-center justify-center rounded-md hover:bg-black/20 text-white font-bold transition-colors cursor-pointer"
-                                title="Decrease (-1 meal/guest)"
+                                className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-black/20 text-white font-bold transition-colors cursor-pointer shrink-0"
+                                title="Decrease (-1)"
                               >
-                                <Minus className="h-3 w-3" />
+                                <Minus className="h-3.5 w-3.5" />
                               </button>
-                              <div className="px-2 py-0.5 text-xs font-bold flex items-center gap-1 min-w-[70px] justify-center select-none">
+                              <div className="px-1 text-xs font-bold flex flex-col items-center justify-center leading-tight select-none flex-1 truncate">
                                 <span>{current.lunch} Meal{current.lunch > 1 ? "s" : ""}</span>
                                 {current.lunch > 1 && (
-                                  <span className="text-[10px] bg-black/30 px-1.5 py-0.2 rounded-full font-medium">
-                                    +{current.lunch - 1} Guest
-                                  </span>
+                                  <span className="text-[9px] opacity-90">+{current.lunch - 1} Guest</span>
                                 )}
                               </div>
                               <button
                                 type="button"
                                 onClick={() => handleSetQuantity(member.id, "lunch", current.lunch + 1)}
-                                className="h-7.5 w-6.5 flex items-center justify-center rounded-md hover:bg-black/20 text-white font-bold transition-colors cursor-pointer"
-                                title="Add Guest / Extra Meal (+1)"
+                                className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-black/20 text-white font-bold transition-colors cursor-pointer shrink-0"
+                                title="Increase (+1)"
                               >
-                                <Plus className="h-3 w-3" />
+                                <Plus className="h-3.5 w-3.5" />
                               </button>
                             </div>
                           )}
-                        </td>
+                        </div>
 
-                        {/* Dinner Button / Counter (Disabled on Friday) */}
-                        <td className="py-3 px-4 text-center">
+                        {/* Dinner Control */}
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                            <Moon className="h-3 w-3 text-indigo-400 shrink-0" />
+                            <span>Dinner (রাত)</span>
+                          </div>
                           {isFriday ? (
-                            <span className="inline-flex items-center justify-center h-8.5 px-3 rounded-lg text-xs font-medium text-muted-foreground/50 bg-muted/30 border border-border/40 select-none">
+                            <span className="flex items-center justify-center w-full h-9 rounded-lg text-xs font-medium text-muted-foreground/60 bg-muted/40 border border-border/40 select-none">
                               Closed (Friday)
                             </span>
                           ) : current.dinner === 0 ? (
                             <button
                               type="button"
                               onClick={() => handleSetQuantity(member.id, "dinner", 1)}
-                              className="inline-flex items-center justify-center h-8.5 px-3 rounded-lg text-xs font-semibold bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border transition-all cursor-pointer"
+                              className="w-full h-9 rounded-lg text-xs font-semibold bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground border border-border transition-all cursor-pointer flex items-center justify-center"
                             >
                               0 (Off)
                             </button>
                           ) : (
-                            <div className="inline-flex items-center rounded-lg bg-indigo-600 text-white shadow-xs p-0.5 border border-indigo-500">
+                            <div className="flex items-center justify-between w-full rounded-lg bg-indigo-600 text-white shadow-xs p-0.5 border border-indigo-500 h-9">
                               <button
                                 type="button"
                                 onClick={() => handleSetQuantity(member.id, "dinner", current.dinner - 1)}
-                                className="h-7.5 w-6.5 flex items-center justify-center rounded-md hover:bg-black/20 text-white font-bold transition-colors cursor-pointer"
-                                title="Decrease (-1 meal/guest)"
+                                className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-black/20 text-white font-bold transition-colors cursor-pointer shrink-0"
+                                title="Decrease (-1)"
                               >
-                                <Minus className="h-3 w-3" />
+                                <Minus className="h-3.5 w-3.5" />
                               </button>
-                              <div className="px-2 py-0.5 text-xs font-bold flex items-center gap-1 min-w-[70px] justify-center select-none">
+                              <div className="px-1 text-xs font-bold flex flex-col items-center justify-center leading-tight select-none flex-1 truncate">
                                 <span>{current.dinner} Meal{current.dinner > 1 ? "s" : ""}</span>
                                 {current.dinner > 1 && (
-                                  <span className="text-[10px] bg-black/30 px-1.5 py-0.2 rounded-full font-medium">
-                                    +{current.dinner - 1} Guest
-                                  </span>
+                                  <span className="text-[9px] opacity-90">+{current.dinner - 1} Guest</span>
                                 )}
                               </div>
                               <button
                                 type="button"
                                 onClick={() => handleSetQuantity(member.id, "dinner", current.dinner + 1)}
-                                className="h-7.5 w-6.5 flex items-center justify-center rounded-md hover:bg-black/20 text-white font-bold transition-colors cursor-pointer"
-                                title="Add Guest / Extra Meal (+1)"
+                                className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-black/20 text-white font-bold transition-colors cursor-pointer shrink-0"
+                                title="Increase (+1)"
                               >
-                                <Plus className="h-3 w-3" />
+                                <Plus className="h-3.5 w-3.5" />
                               </button>
                             </div>
                           )}
-                        </td>
-
-                        {/* Total Meals for Member */}
-                        <td className="py-3 px-4 text-center font-bold text-foreground">
-                          {memberTotalMeals}
-                        </td>
-
-                        {/* Cost for Member */}
-                        <td className="py-3 px-4 text-right font-medium text-muted-foreground">
-                          {formatBDT(memberCost)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
 
       {/* Live Group Calculation Summary & Actions */}
       <Card className="border-primary/20 bg-primary/5">
-        <CardContent className="p-6">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+        <CardContent className="p-4 sm:p-6">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 sm:gap-6">
             {/* Live Counter Display */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4 w-full lg:w-auto">
               <div className="p-3 bg-card rounded-xl border border-border">
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase">
+                <span className="text-[10px] sm:text-[11px] font-semibold text-muted-foreground uppercase">
                   Total Lunch
                 </span>
-                <p className="text-xl font-bold text-foreground mt-0.5">{totalLunch}</p>
+                <p className="text-lg sm:text-xl font-bold text-foreground mt-0.5">{totalLunch}</p>
               </div>
 
               <div className="p-3 bg-card rounded-xl border border-border">
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase">
+                <span className="text-[10px] sm:text-[11px] font-semibold text-muted-foreground uppercase">
                   Total Dinner
                 </span>
-                <p className="text-xl font-bold text-foreground mt-0.5">
+                <p className="text-lg sm:text-xl font-bold text-foreground mt-0.5">
                   {isFriday ? 0 : totalDinner}
                 </p>
               </div>
 
               <div className="p-3 bg-card rounded-xl border border-border">
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase">
+                <span className="text-[10px] sm:text-[11px] font-semibold text-muted-foreground uppercase">
                   Total Meals
                 </span>
-                <p className="text-xl font-bold text-primary mt-0.5">
+                <p className="text-lg sm:text-xl font-bold text-primary mt-0.5">
                   {totalDailyMeals}
                 </p>
               </div>
 
               <div className="p-3 bg-card rounded-xl border border-border">
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase">
+                <span className="text-[10px] sm:text-[11px] font-semibold text-muted-foreground uppercase">
                   Total Daily Cost
                 </span>
-                <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                <p className="text-lg sm:text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
                   {formatBDT(totalDailyCost)}
                 </p>
               </div>
             </div>
 
             {/* Action Buttons */}
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                variant="outline"
-                size="md"
-                onClick={handleResetClick}
-                disabled={isSaving}
-                className="gap-1.5"
-              >
-                <RotateCcw className="h-4 w-4" />
-                <span>Reset</span>
-              </Button>
-
-              {hasExistingRecord && (
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full lg:w-auto">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
                 <Button
-                  variant="destructive"
+                  variant="outline"
                   size="md"
-                  onClick={handleDelete}
+                  onClick={handleResetClick}
                   disabled={isSaving}
-                  className="gap-1.5"
+                  className="gap-1.5 flex-1 sm:flex-initial h-10 sm:h-9"
                 >
-                  <Trash2 className="h-4 w-4" />
-                  <span>Delete Entry</span>
+                  <RotateCcw className="h-4 w-4" />
+                  <span>Reset</span>
                 </Button>
-              )}
+
+                {hasExistingRecord && (
+                  <Button
+                    variant="destructive"
+                    size="md"
+                    onClick={handleDelete}
+                    disabled={isSaving}
+                    className="gap-1.5 flex-1 sm:flex-initial h-10 sm:h-9"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span>Delete Entry</span>
+                  </Button>
+                )}
+              </div>
 
               <Button
                 variant="primary"
                 size="md"
                 onClick={handleSave}
                 isLoading={isSaving}
-                className="gap-2 px-6"
+                className="gap-2 px-6 w-full sm:w-auto h-11 sm:h-9 text-sm font-semibold shadow-sm"
               >
                 <Save className="h-4 w-4" />
                 <span>{hasExistingRecord ? "Update Daily Meals" : "Save Daily Meals"}</span>
@@ -697,9 +848,9 @@ export default function DailyMealEntryPage() {
 
       {/* Review & Confirmation Modal */}
       {isConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <Card className="w-full max-w-lg shadow-2xl border-border">
-            <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <Card className="w-full max-w-lg shadow-2xl border-border max-h-[90vh] flex flex-col">
+            <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border shrink-0">
               <div>
                 <CardTitle className="text-base font-bold flex items-center gap-2">
                   <CheckCircle2 className="h-5 w-5 text-primary" />
@@ -714,11 +865,11 @@ export default function DailyMealEntryPage() {
                 onClick={() => setIsConfirmOpen(false)}
                 className="text-muted-foreground hover:text-foreground p-1 cursor-pointer"
               >
-                <X className="h-4 w-4" />
+                <X className="h-5 w-5" />
               </button>
             </CardHeader>
 
-            <CardContent className="pt-4 space-y-4 max-h-[75vh] overflow-y-auto">
+            <CardContent className="pt-4 space-y-4 overflow-y-auto flex-1">
               <div className="p-3 rounded-lg bg-muted/60 border border-border text-xs text-muted-foreground space-y-1">
                 <p className="font-semibold text-foreground flex items-center gap-1.5">
                   <AlertCircle className="h-4 w-4 text-primary shrink-0" />
@@ -733,8 +884,8 @@ export default function DailyMealEntryPage() {
               </div>
 
               {/* Members summary table */}
-              <div className="rounded-lg border border-border overflow-hidden">
-                <table className="w-full text-xs text-left">
+              <div className="rounded-lg border border-border overflow-x-auto">
+                <table className="w-full text-xs text-left min-w-[280px]">
                   <thead className="bg-muted/70 text-muted-foreground font-semibold">
                     <tr>
                       <th className="py-2.5 px-3">মেম্বার</th>
@@ -807,13 +958,14 @@ export default function DailyMealEntryPage() {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-border">
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => setIsConfirmOpen(false)}
                   disabled={isSaving}
+                  className="w-full sm:w-auto"
                 >
                   ফিরে গিয়ে পরিবর্তন করুন (Back)
                 </Button>
@@ -823,7 +975,7 @@ export default function DailyMealEntryPage() {
                   size="sm"
                   onClick={handleExecuteSave}
                   isLoading={isSaving}
-                  className="gap-1.5 shadow-sm"
+                  className="gap-1.5 shadow-sm w-full sm:w-auto"
                 >
                   <Check className="h-4 w-4" />
                   <span>{hasExistingRecord ? "হ্যাঁ, আপডেট নিশ্চিত করুন" : "হ্যাঁ, সেভ নিশ্চিত করুন"}</span>
@@ -836,8 +988,8 @@ export default function DailyMealEntryPage() {
 
       {/* Reset Confirmation Modal */}
       {isResetConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <Card className="w-full max-w-md shadow-2xl border-amber-500/30">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <Card className="w-full max-w-md shadow-2xl border-amber-500/30 max-h-[90vh] overflow-y-auto">
             <CardHeader className="flex flex-row items-start gap-3 pb-3 border-b border-border">
               <div className="p-2.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5">
                 <RotateCcw className="h-5 w-5" />
@@ -873,12 +1025,13 @@ export default function DailyMealEntryPage() {
                 </p>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-border">
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => setIsResetConfirmOpen(false)}
+                  className="w-full sm:w-auto"
                 >
                   বাতিল করুন (Cancel)
                 </Button>
@@ -887,7 +1040,7 @@ export default function DailyMealEntryPage() {
                   variant="destructive"
                   size="sm"
                   onClick={handleConfirmReset}
-                  className="gap-1.5 shadow-sm"
+                  className="gap-1.5 shadow-sm w-full sm:w-auto"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
                   <span>হ্যাঁ, রিসেট করুন</span>

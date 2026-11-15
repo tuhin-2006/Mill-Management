@@ -275,7 +275,7 @@ export default function DepositsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSaveDeposit} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <form onSubmit={handleSaveDeposit} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
             {/* Member Select */}
             <div className="space-y-1.5">
               <Label htmlFor="member-select">Select Member</Label>
@@ -334,7 +334,7 @@ export default function DepositsPage() {
 
             {/* Submit Button */}
             <div className="sm:col-span-2 lg:col-span-4 flex justify-end pt-2">
-              <Button type="submit" variant="primary" isLoading={isSubmitting} className="gap-2">
+              <Button type="submit" variant="primary" isLoading={isSubmitting} className="gap-2 w-full sm:w-auto h-10 sm:h-9">
                 <Wallet className="h-4 w-4" />
                 <span>Save Deposit</span>
               </Button>
@@ -345,7 +345,7 @@ export default function DepositsPage() {
 
       {/* Deposit History Table */}
       <Card>
-        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3">
           <div>
             <CardTitle className="text-base font-semibold">Deposit Transaction History</CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -359,7 +359,7 @@ export default function DepositsPage() {
               placeholder="Search by member or note..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-8 text-xs h-9"
+              className="pl-8 text-xs h-9 w-full"
             />
           </div>
         </CardHeader>
@@ -373,95 +373,162 @@ export default function DepositsPage() {
               {searchTerm ? "No deposits matching your search." : "No deposits recorded yet."}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="text-xs uppercase bg-muted/50 text-muted-foreground border-b border-border">
-                  <tr>
-                    <th className="py-3 px-4">Date</th>
-                    <th className="py-3 px-4">Member</th>
-                    <th className="py-3 px-4 text-right">Amount</th>
-                    <th className="py-3 px-4">Note / Description</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {filteredDeposits.map((dep) => (
-                    <tr key={dep.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="py-3 px-4 font-medium text-foreground">
-                        {formatDate(dep.deposit_date)}
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <User className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span className="font-semibold text-foreground">
-                            {dep.member?.name || "Member"}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-right font-bold text-emerald-600 dark:text-emerald-400">
-                        +{formatBDT(dep.amount)}
-                      </td>
-                      <td className="py-3 px-4 text-muted-foreground text-xs">
-                        {dep.note || "—"}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              setEditDepositItem(dep);
-                              setEditMemberId(dep.member_id);
-                              setEditAmount(String(dep.amount));
-                              setEditDate(dep.deposit_date);
-                              setEditNote(dep.note || "");
-                            }}
-                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                            title="Edit Deposit"
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() =>
-                              handleDeleteDeposit(
-                                dep.id,
-                                dep.member?.name || "Member",
-                                dep.amount
-                              )
-                            }
-                            className="h-8 w-8 text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                            title="Delete Deposit"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </td>
+            <>
+              {/* Desktop / Tablet Table */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs uppercase bg-muted/50 text-muted-foreground border-b border-border">
+                    <tr>
+                      <th className="py-3 px-4">Date</th>
+                      <th className="py-3 px-4">Member</th>
+                      <th className="py-3 px-4 text-right">Amount</th>
+                      <th className="py-3 px-4">Note / Description</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {filteredDeposits.map((dep) => (
+                      <tr key={dep.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="py-3 px-4 font-medium text-foreground">
+                          {formatDate(dep.deposit_date)}
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <User className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span className="font-semibold text-foreground">
+                              {dep.member?.name || "Member"}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-right font-bold text-emerald-600 dark:text-emerald-400">
+                          +{formatBDT(dep.amount)}
+                        </td>
+                        <td className="py-3 px-4 text-muted-foreground text-xs">
+                          {dep.note || "—"}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setEditDepositItem(dep);
+                                setEditMemberId(dep.member_id);
+                                setEditAmount(String(dep.amount));
+                                setEditDate(dep.deposit_date);
+                                setEditNote(dep.note || "");
+                              }}
+                              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                              title="Edit Deposit"
+                            >
+                              <Edit2 className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() =>
+                                handleDeleteDeposit(
+                                  dep.id,
+                                  dep.member?.name || "Member",
+                                  dep.amount
+                                )
+                              }
+                              className="h-8 w-8 text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                              title="Delete Deposit"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Phone Cards */}
+              <div className="md:hidden space-y-2.5">
+                {filteredDeposits.map((dep) => (
+                  <div
+                    key={dep.id}
+                    className="p-3.5 rounded-xl border border-border bg-card/60 shadow-2xs space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="h-7 w-7 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                          {(dep.member?.name || "M").charAt(0).toUpperCase()}
+                        </div>
+                        <span className="font-semibold text-foreground text-sm truncate">
+                          {dep.member?.name || "Member"}
+                        </span>
+                      </div>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm shrink-0">
+                        +{formatBDT(dep.amount)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border/40">
+                      <div className="min-w-0">
+                        <span className="font-medium text-foreground">{formatDate(dep.deposit_date)}</span>
+                        {dep.note && <span className="ml-1 text-muted-foreground truncate">• {dep.note}</span>}
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setEditDepositItem(dep);
+                            setEditMemberId(dep.member_id);
+                            setEditAmount(String(dep.amount));
+                            setEditDate(dep.deposit_date);
+                            setEditNote(dep.note || "");
+                          }}
+                          className="h-7.5 px-2 text-xs text-muted-foreground hover:text-foreground gap-1"
+                        >
+                          <Edit2 className="h-3 w-3" />
+                          <span>Edit</span>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            handleDeleteDeposit(
+                              dep.id,
+                              dep.member?.name || "Member",
+                              dep.amount
+                            )
+                          }
+                          className="h-7.5 px-2 text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 gap-1"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          <span>Delete</span>
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
 
       {/* Edit Deposit Modal */}
       {editDepositItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <Card className="w-full max-w-md shadow-xl border-border">
-            <CardHeader className="flex flex-row items-center justify-between pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
+          <Card className="w-full max-w-md shadow-xl border-border max-h-[90vh] overflow-y-auto">
+            <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border">
               <CardTitle className="text-base">Edit Deposit Transaction</CardTitle>
               <button
                 type="button"
                 onClick={() => setEditDepositItem(null)}
-                className="text-muted-foreground hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground p-1"
               >
                 <X className="h-4 w-4" />
               </button>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-4">
               <form onSubmit={handleUpdateDeposit} className="space-y-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="edit-member-select">Member</Label>
@@ -513,16 +580,17 @@ export default function DepositsPage() {
                   />
                 </div>
 
-                <div className="flex items-center justify-end gap-2 pt-2">
+                <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-border">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => setEditDepositItem(null)}
+                    className="w-full sm:w-auto"
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" variant="primary" size="sm">
+                  <Button type="submit" variant="primary" size="sm" className="w-full sm:w-auto">
                     Update Deposit
                   </Button>
                 </div>

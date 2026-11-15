@@ -292,30 +292,30 @@ function MemberDetailsDialog({
   const initial = memberName.charAt(0).toUpperCase();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/65 backdrop-blur-sm animate-in fade-in duration-200">
-      <Card className="w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl border-border bg-card overflow-hidden rounded-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/65 backdrop-blur-sm animate-in fade-in duration-200">
+      <Card className="w-full max-w-4xl max-h-[94vh] flex flex-col shadow-2xl border-border bg-card overflow-hidden rounded-xl sm:rounded-2xl">
         {/* Modal Header */}
-        <CardHeader className="flex flex-row items-center justify-between border-b border-border/80 px-6 py-4.5 bg-muted/20 shrink-0">
-          <div className="flex items-center gap-3.5">
-            <div className="h-11 w-11 rounded-full bg-gradient-to-tr from-primary to-primary/60 text-primary-foreground font-bold text-base flex items-center justify-center shadow-sm ring-2 ring-primary/20">
+        <CardHeader className="flex flex-row items-center justify-between border-b border-border/80 px-4 sm:px-6 py-3.5 sm:py-4.5 bg-muted/20 shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
+            <div className="h-9 w-9 sm:h-11 sm:w-11 rounded-full bg-gradient-to-tr from-primary to-primary/60 text-primary-foreground font-bold text-sm sm:text-base flex items-center justify-center shadow-sm ring-2 ring-primary/20 shrink-0">
               {initial}
             </div>
-            <div>
-              <div className="flex items-center gap-2.5">
-                <CardTitle className="text-lg sm:text-xl font-bold tracking-tight text-foreground">
-                  {memberName} — View Details
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <CardTitle className="text-base sm:text-xl font-bold tracking-tight text-foreground truncate">
+                  {memberName}
                 </CardTitle>
-                <Badge variant={data?.member?.status === "active" ? "success" : "secondary"}>
+                <Badge variant={data?.member?.status === "active" ? "success" : "secondary"} className="shrink-0 text-[10px]">
                   {data?.member?.status || "active"}
                 </Badge>
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Activity summary, meal consumption, and deposit ledger
+              <p className="text-[11px] sm:text-xs text-muted-foreground truncate">
+                Activity summary, meal records, and deposit ledger
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <Button
               variant="outline"
               size="sm"
@@ -338,7 +338,7 @@ function MemberDetailsDialog({
         </CardHeader>
 
         {/* Modal Body */}
-        <CardContent className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+        <CardContent className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6">
           {isLoading ? (
             <div className="py-20 text-center text-sm text-muted-foreground animate-pulse">
               Loading member details & activity records...
@@ -400,14 +400,14 @@ function MemberDetailsDialog({
                   </div>
 
                   {/* Manual Date Range Inputs */}
-                  <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                    <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto">
+                    <div className="flex items-center gap-1.5 flex-1 sm:flex-initial">
                       <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       <Input
                         type="date"
                         value={startDate}
                         onChange={(e) => handleCustomDateChange("start", e.target.value)}
-                        className="h-8 text-xs py-1 px-2 w-32 bg-background"
+                        className="h-8 text-xs py-1 px-2 w-full sm:w-32 bg-background"
                         title="Start Date"
                       />
                     </div>
@@ -416,7 +416,7 @@ function MemberDetailsDialog({
                       type="date"
                       value={endDate}
                       onChange={(e) => handleCustomDateChange("end", e.target.value)}
-                      className="h-8 text-xs py-1 px-2 w-32 bg-background"
+                      className="h-8 text-xs py-1 px-2 w-full sm:w-32 flex-1 sm:flex-initial bg-background"
                       title="End Date"
                     />
 
@@ -425,11 +425,11 @@ function MemberDetailsDialog({
                         variant="ghost"
                         size="sm"
                         onClick={clearFilters}
-                        className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground gap-1"
+                        className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground gap-1 shrink-0"
                         title="Clear filter"
                       >
                         <RotateCcw className="h-3 w-3" />
-                        <span className="hidden sm:inline">Reset</span>
+                        <span className="inline">Reset</span>
                       </Button>
                     )}
                   </div>
@@ -669,11 +669,11 @@ function MemberDetailsDialog({
               </div>
 
               {/* View Tabs */}
-              <div className="flex items-center border-b border-border gap-2">
+              <div className="flex items-center border-b border-border gap-2 overflow-x-auto whitespace-nowrap pb-0">
                 <button
                   type="button"
                   onClick={() => setActiveTab("meals")}
-                  className={`pb-2.5 px-3 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 cursor-pointer ${
+                  className={`pb-2.5 px-3 text-xs sm:text-sm font-semibold border-b-2 transition-colors flex items-center gap-1.5 sm:gap-2 cursor-pointer shrink-0 ${
                     activeTab === "meals"
                       ? "border-primary text-primary"
                       : "border-transparent text-muted-foreground hover:text-foreground"
@@ -681,7 +681,7 @@ function MemberDetailsDialog({
                 >
                   <UtensilsCrossed className="h-4 w-4" />
                   <span>Meal Records</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-foreground font-mono">
+                  <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-muted text-foreground font-mono">
                     {filteredMeals.length}
                   </span>
                 </button>
@@ -689,7 +689,7 @@ function MemberDetailsDialog({
                 <button
                   type="button"
                   onClick={() => setActiveTab("deposits")}
-                  className={`pb-2.5 px-3 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 cursor-pointer ${
+                  className={`pb-2.5 px-3 text-xs sm:text-sm font-semibold border-b-2 transition-colors flex items-center gap-1.5 sm:gap-2 cursor-pointer shrink-0 ${
                     activeTab === "deposits"
                       ? "border-primary text-primary"
                       : "border-transparent text-muted-foreground hover:text-foreground"
@@ -697,7 +697,7 @@ function MemberDetailsDialog({
                 >
                   <Wallet className="h-4 w-4" />
                   <span>Deposits</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-foreground font-mono">
+                  <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-muted text-foreground font-mono">
                     {filteredDeposits.length}
                   </span>
                 </button>
@@ -705,7 +705,7 @@ function MemberDetailsDialog({
                 <button
                   type="button"
                   onClick={() => setActiveTab("timeline")}
-                  className={`pb-2.5 px-3 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 cursor-pointer ${
+                  className={`pb-2.5 px-3 text-xs sm:text-sm font-semibold border-b-2 transition-colors flex items-center gap-1.5 sm:gap-2 cursor-pointer shrink-0 ${
                     activeTab === "timeline"
                       ? "border-primary text-primary"
                       : "border-transparent text-muted-foreground hover:text-foreground"
@@ -713,7 +713,7 @@ function MemberDetailsDialog({
                 >
                   <Calendar className="h-4 w-4" />
                   <span>Full Timeline</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-foreground font-mono">
+                  <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-muted text-foreground font-mono">
                     {combinedTimeline.length}
                   </span>
                 </button>

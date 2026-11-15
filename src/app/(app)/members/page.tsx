@@ -250,7 +250,7 @@ export default function MembersPage() {
 
       {/* Members List Table */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
           <CardTitle className="text-base font-semibold">Group Roster ({members.length} Total)</CardTitle>
         </CardHeader>
         <CardContent>
@@ -263,141 +263,267 @@ export default function MembersPage() {
               No members configured yet. Click &quot;Add Member&quot; above to create your group roster.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="text-xs uppercase bg-muted/50 text-muted-foreground border-b border-border">
-                  <tr>
-                    <th className="py-3 px-4">Member Name</th>
-                    <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4 text-center">Total Meals</th>
-                    <th className="py-3 px-4 text-right">Meal Cost</th>
-                    <th className="py-3 px-4 text-right">Total Deposited</th>
-                    <th className="py-3 px-4 text-right">Current Balance</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {members.map((member) => {
-                    const sum = summaries[member.id] || {
-                      total_meals: 0,
-                      total_meal_cost: 0,
-                      total_deposited: 0,
-                      balance: 0,
-                    };
-                    const isPositive = sum.balance >= 0;
+            <>
+              {/* Desktop & Tablet Table View */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs uppercase bg-muted/50 text-muted-foreground border-b border-border">
+                    <tr>
+                      <th className="py-3 px-4">Member Name</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4 text-center">Total Meals</th>
+                      <th className="py-3 px-4 text-right">Meal Cost</th>
+                      <th className="py-3 px-4 text-right">Total Deposited</th>
+                      <th className="py-3 px-4 text-right">Current Balance</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {members.map((member) => {
+                      const sum = summaries[member.id] || {
+                        total_meals: 0,
+                        total_meal_cost: 0,
+                        total_deposited: 0,
+                        balance: 0,
+                      };
+                      const isPositive = sum.balance >= 0;
 
-                    return (
-                      <tr key={member.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="py-3.5 px-4 font-semibold text-foreground">
-                          {member.name}
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <Badge variant={member.status === "active" ? "success" : "secondary"}>
-                            {member.status}
-                          </Badge>
-                        </td>
-                        <td className="py-3.5 px-4 text-center font-medium">
-                          {sum.total_meals}
-                        </td>
-                        <td className="py-3.5 px-4 text-right text-muted-foreground">
-                          {formatBDT(sum.total_meal_cost)}
-                        </td>
-                        <td className="py-3.5 px-4 text-right text-emerald-600 dark:text-emerald-400 font-medium">
-                          {formatBDT(sum.total_deposited)}
-                        </td>
-                        <td
-                          className={`py-3.5 px-4 text-right font-bold ${
-                            isPositive
-                              ? "text-emerald-600 dark:text-emerald-400"
-                              : "text-destructive"
-                          }`}
-                        >
-                          {formatBDT(sum.balance)}
-                        </td>
-                        <td className="py-3.5 px-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            {/* View Details Button */}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleViewDetail(member.id)}
-                              className="h-8 px-2.5 text-xs gap-1.5 font-medium hover:bg-primary/10 hover:text-primary transition-colors border-border/80"
-                              title="View Member Details"
-                            >
-                              <Eye className="h-3.5 w-3.5 text-primary" />
-                              <span>View Details</span>
-                            </Button>
+                      return (
+                        <tr key={member.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="py-3.5 px-4 font-semibold text-foreground">
+                            {member.name}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <Badge variant={member.status === "active" ? "success" : "secondary"}>
+                              {member.status}
+                            </Badge>
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-medium">
+                            {sum.total_meals}
+                          </td>
+                          <td className="py-3.5 px-4 text-right text-muted-foreground">
+                            {formatBDT(sum.total_meal_cost)}
+                          </td>
+                          <td className="py-3.5 px-4 text-right text-emerald-600 dark:text-emerald-400 font-medium">
+                            {formatBDT(sum.total_deposited)}
+                          </td>
+                          <td
+                            className={`py-3.5 px-4 text-right font-bold ${
+                              isPositive
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-destructive"
+                            }`}
+                          >
+                            {formatBDT(sum.balance)}
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {/* View Details Button */}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleViewDetail(member.id)}
+                                className="h-8 px-2.5 text-xs gap-1.5 font-medium hover:bg-primary/10 hover:text-primary transition-colors border-border/80"
+                                title="View Member Details"
+                              >
+                                <Eye className="h-3.5 w-3.5 text-primary" />
+                                <span>View Details</span>
+                              </Button>
 
-                            {/* Edit Name Button */}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => {
-                                setEditMember(member);
-                                setEditName(member.name);
-                              }}
-                              className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                              title="Edit Member Name"
-                            >
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </Button>
+                              {/* Edit Name Button */}
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  setEditMember(member);
+                                  setEditName(member.name);
+                                }}
+                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                title="Edit Member Name"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </Button>
 
-                            {/* Activate / Deactivate Toggle */}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleToggleStatus(member)}
-                              className={`h-8 w-8 ${
-                                member.status === "active"
-                                  ? "text-amber-600 hover:text-amber-700"
-                                  : "text-emerald-600 hover:text-emerald-700"
-                              }`}
-                              title={
-                                member.status === "active"
-                                  ? "Deactivate Member"
-                                  : "Activate Member"
-                              }
-                            >
-                              <Power className="h-3.5 w-3.5" />
-                            </Button>
+                              {/* Activate / Deactivate Toggle */}
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleToggleStatus(member)}
+                                className={`h-8 w-8 ${
+                                  member.status === "active"
+                                    ? "text-amber-600 hover:text-amber-700"
+                                    : "text-emerald-600 hover:text-emerald-700"
+                                }`}
+                                title={
+                                  member.status === "active"
+                                    ? "Deactivate Member"
+                                    : "Activate Member"
+                                }
+                              >
+                                <Power className="h-3.5 w-3.5" />
+                              </Button>
 
-                            {/* Delete Member Button */}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setMemberToDelete(member)}
-                              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                              title="Delete Member"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                              {/* Delete Member Button */}
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setMemberToDelete(member)}
+                                className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                title="Delete Member"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Phone Cards View */}
+              <div className="md:hidden space-y-3">
+                {members.map((member) => {
+                  const sum = summaries[member.id] || {
+                    total_meals: 0,
+                    total_meal_cost: 0,
+                    total_deposited: 0,
+                    balance: 0,
+                  };
+                  const isPositive = sum.balance >= 0;
+
+                  return (
+                    <div
+                      key={member.id}
+                      className="p-3.5 rounded-xl border border-border bg-card/60 shadow-2xs space-y-3"
+                    >
+                      {/* Header */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="h-9 w-9 rounded-full bg-primary/10 text-primary font-bold flex items-center justify-center text-xs shrink-0 border border-primary/20">
+                            {member.name.slice(0, 2).toUpperCase()}
                           </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                          <div className="min-w-0">
+                            <span className="font-semibold text-foreground text-sm truncate block">
+                              {member.name}
+                            </span>
+                            <Badge
+                              variant={member.status === "active" ? "success" : "secondary"}
+                              className="text-[10px] mt-0.5"
+                            >
+                              {member.status}
+                            </Badge>
+                          </div>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <span
+                            className={`text-base font-bold block ${
+                              isPositive
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-destructive"
+                            }`}
+                          >
+                            {formatBDT(sum.balance)}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {isPositive ? "Surplus" : "Due"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Financial breakdown stats */}
+                      <div className="grid grid-cols-3 gap-1.5 p-2 rounded-lg bg-muted/40 text-xs text-center border border-border/40">
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">Meals</span>
+                          <span className="font-semibold text-foreground">{sum.total_meals}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">Cost</span>
+                          <span className="font-semibold text-muted-foreground">{formatBDT(sum.total_meal_cost)}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">Deposited</span>
+                          <span className="font-semibold text-emerald-600 dark:text-emerald-400">{formatBDT(sum.total_deposited)}</span>
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center justify-between pt-2 border-t border-border/50 gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleViewDetail(member.id)}
+                          className="h-8 px-2.5 text-xs gap-1.5 font-medium flex-1 text-primary border-primary/20 hover:bg-primary/10"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          <span>View Details</span>
+                        </Button>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setEditMember(member);
+                              setEditName(member.name);
+                            }}
+                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                            title="Edit Name"
+                          >
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </Button>
+
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleToggleStatus(member)}
+                            className={`h-8 w-8 ${
+                              member.status === "active"
+                                ? "text-amber-600 hover:text-amber-700"
+                                : "text-emerald-600 hover:text-emerald-700"
+                            }`}
+                            title="Toggle Status"
+                          >
+                            <Power className="h-3.5 w-3.5" />
+                          </Button>
+
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setMemberToDelete(member)}
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
 
       {/* Add Member Modal */}
       {isAddOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <Card className="w-full max-w-md shadow-xl border-border">
-            <CardHeader className="flex flex-row items-center justify-between pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
+          <Card className="w-full max-w-md shadow-xl border-border max-h-[90vh] overflow-y-auto">
+            <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border">
               <CardTitle className="text-base">Add New Member</CardTitle>
               <button
                 type="button"
                 onClick={() => setIsAddOpen(false)}
-                className="text-muted-foreground hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground p-1"
               >
                 <X className="h-4 w-4" />
               </button>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-4">
               <form onSubmit={handleAddMember} className="space-y-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="new-member-name">Member Full Name</Label>
@@ -410,16 +536,17 @@ export default function MembersPage() {
                     autoFocus
                   />
                 </div>
-                <div className="flex items-center justify-end gap-2 pt-2">
+                <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-border">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => setIsAddOpen(false)}
+                    className="w-full sm:w-auto"
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" variant="primary" size="sm">
+                  <Button type="submit" variant="primary" size="sm" className="w-full sm:w-auto">
                     Add Member
                   </Button>
                 </div>
@@ -431,19 +558,19 @@ export default function MembersPage() {
 
       {/* Edit Member Modal */}
       {editMember && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <Card className="w-full max-w-md shadow-xl border-border">
-            <CardHeader className="flex flex-row items-center justify-between pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
+          <Card className="w-full max-w-md shadow-xl border-border max-h-[90vh] overflow-y-auto">
+            <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border">
               <CardTitle className="text-base">Edit Member Name</CardTitle>
               <button
                 type="button"
                 onClick={() => setEditMember(null)}
-                className="text-muted-foreground hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground p-1"
               >
                 <X className="h-4 w-4" />
               </button>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-4">
               <form onSubmit={handleEditMember} className="space-y-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="edit-member-name">Full Name</Label>
@@ -455,16 +582,17 @@ export default function MembersPage() {
                     autoFocus
                   />
                 </div>
-                <div className="flex items-center justify-end gap-2 pt-2">
+                <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-border">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => setEditMember(null)}
+                    className="w-full sm:w-auto"
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" variant="primary" size="sm">
+                  <Button type="submit" variant="primary" size="sm" className="w-full sm:w-auto">
                     Save Changes
                   </Button>
                 </div>
@@ -476,8 +604,8 @@ export default function MembersPage() {
 
       {/* Delete Member Confirmation Modal */}
       {memberToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <Card className="w-full max-w-md shadow-2xl border-destructive/30">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <Card className="w-full max-w-md shadow-2xl border-destructive/30 max-h-[90vh] overflow-y-auto">
             <CardHeader className="flex flex-row items-start gap-3 pb-3 border-b border-border/80">
               <div className="p-2.5 rounded-full bg-destructive/10 text-destructive shrink-0 mt-0.5">
                 <AlertTriangle className="h-5 w-5" />
@@ -511,13 +639,14 @@ export default function MembersPage() {
                   এই সদস্যের সাথে সম্পর্কিত সমস্ত খাবার খরচ (Meal Records) এবং জমার লেনদেন (Deposits) স্থায়ীভাবে মুছে ফেলা হবে।
                 </p>
               </div>
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-border">
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => setMemberToDelete(null)}
                   disabled={isDeleting}
+                  className="w-full sm:w-auto"
                 >
                   Cancel (বাতিল)
                 </Button>
@@ -527,7 +656,7 @@ export default function MembersPage() {
                   size="sm"
                   onClick={handleDeleteMember}
                   isLoading={isDeleting}
-                  className="gap-1.5"
+                  className="gap-1.5 w-full sm:w-auto"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   <span>Yes, Delete Member</span>

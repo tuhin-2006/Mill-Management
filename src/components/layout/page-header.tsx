@@ -17,23 +17,25 @@ export function PageHeader({
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 pb-6 md:flex-row md:items-center md:justify-between border-b border-border",
+        "flex flex-col gap-3.5 pb-4 sm:pb-6 md:flex-row md:items-center md:justify-between border-b border-border min-w-0",
         className
       )}
       {...props}
     >
-      <div className="space-y-1">
-        <h1 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
+      <div className="space-y-1 min-w-0">
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground truncate">
           {title}
         </h1>
         {description && (
-          <p className="text-xs md:text-sm text-muted-foreground">
+          <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
             {description}
           </p>
         )}
       </div>
       {actions && (
-        <div className="flex items-center gap-2 shrink-0">{actions}</div>
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0 w-full sm:w-auto">
+          {actions}
+        </div>
       )}
     </div>
   );
