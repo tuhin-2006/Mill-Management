@@ -26,6 +26,9 @@ export interface Settings {
   timezone: string;
   friday_dinner_disabled: boolean;
   group_ledger_viewer_email?: string | null;
+  auto_email_enabled?: boolean;
+  weekly_report_day?: string;
+  weekly_report_time?: string;
   updated_at: string;
 }
 

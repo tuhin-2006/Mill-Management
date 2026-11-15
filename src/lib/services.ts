@@ -67,6 +67,9 @@ export const DEFAULT_SETTINGS: Settings = {
   currency: "BDT",
   timezone: "Asia/Dhaka",
   friday_dinner_disabled: true,
+  auto_email_enabled: false,
+  weekly_report_day: "Friday",
+  weekly_report_time: "20:00",
   updated_at: new Date().toISOString(),
 };
 

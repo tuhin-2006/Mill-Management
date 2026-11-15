@@ -25,10 +25,11 @@
 
 /**
  * MASTER SAFETY SWITCH:
- * Set to TRUE only after you have tested and approved automatic Friday scheduling.
- * While FALSE, automated triggers will log a safety notice and exit without sending.
+ * Set to TRUE. The live activation switch is now dynamically controlled
+ * directly from your Mill Manager web dashboard (Settings / Email Reports page).
+ * When turned OFF in the web dashboard, scheduled runs safely exit without sending.
  */
-var AUTOMATIC_SENDING_ENABLED = false;
+var AUTOMATIC_SENDING_ENABLED = true;
 
 /**
  * Retrieves a script property securely from PropertiesService.
@@ -70,16 +71,6 @@ function getConfig() {
 function sendWeeklyReports(isManualRun, forceSend) {
   Logger.log("=== [START] Mill Weekly Reporting Engine ===");
 
-  // 1. Safety check for automatic trigger executions
-  if (!isManualRun && !AUTOMATIC_SENDING_ENABLED) {
-    Logger.log("⚠️ [SAFETY LOCK ACTIVE] AUTOMATIC_SENDING_ENABLED is set to FALSE.");
-    Logger.log("No emails were dispatched. To enable automatic weekly sending, update AUTOMATIC_SENDING_ENABLED = true in Code.gs after your approval.");
-    return {
-      status: "blocked_by_safety_lock",
-      message: "Automatic sending is disabled until administrator approval.",
-    };
-  }
-
   var config = getConfig();
   var remainingQuota = MailApp.getRemainingDailyQuota();
   Logger.log("Current Gmail daily quota remaining: " + remainingQuota + " emails");
@@ -89,11 +80,12 @@ function sendWeeklyReports(isManualRun, forceSend) {
     return { status: "error", message: "Insufficient Gmail quota" };
   }
 
-  // 2. Fetch prepared reports from Supabase Edge Function
+  // 1. Fetch prepared reports from Supabase Edge Function
   Logger.log("Fetching prepared weekly reports from Edge Function...");
   var requestPayload = {
     action: "prepare",
     force: Boolean(forceSend),
+    isManualRun: Boolean(isManualRun),
   };
 
   var options = {
@@ -123,6 +115,17 @@ function sendWeeklyReports(isManualRun, forceSend) {
   }
 
   var data = JSON.parse(responseText);
+
+  // Safety Switch Check: If automated trigger and auto_email_enabled is FALSE, exit cleanly without sending
+  if (data.status === "safety_locked" || (!data.auto_email_enabled && !isManualRun)) {
+    Logger.log("🔒 [SAFETY LOCK ACTIVE] " + (data.message || "Automatic sending is turned OFF in Admin Settings."));
+    return {
+      status: "safety_locked",
+      reportsCount: 0,
+      message: data.message || "Automatic weekly sending is paused in Admin Settings.",
+    };
+  }
+
   if (!data.success || !Array.isArray(data.reports)) {
     Logger.log("❌ Invalid response structure from Edge Function: " + responseText);
     throw new Error("Invalid response from Edge Function");
@@ -389,4 +392,51 @@ function removeWeeklyTrigger() {
     }
   }
   Logger.log("Removed " + removed + " existing trigger(s) for sendWeeklyReports.");
+}
+
+// ==============================================================================
+// 5. WEB APP HTTP ENDPOINTS (Optional Direct Trigger)
+// ==============================================================================
+
+/**
+ * Web App HTTP Entrypoint: Allows triggering manual report sends securely via HTTP POST.
+ */
+function doPost(e) {
+  try {
+    var secretHeader = e && e.parameter ? e.parameter.secret : "";
+    var body = e && e.postData && e.postData.contents ? JSON.parse(e.postData.contents) : {};
+    var secret = body.secret || secretHeader;
+    var config = getConfig();
+
+    if (secret !== config.sharedSecret) {
+      return ContentService.createTextOutput(JSON.stringify({ error: "Unauthorized" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    var action = body.action || "send_weekly";
+    var result;
+
+    if (action === "test_preview") {
+      var targetEmail = body.targetEmail || config.adminTestEmail;
+      sendTestEmail(targetEmail);
+      result = { success: true, action: "test_preview", targetEmail: targetEmail };
+    } else {
+      var force = Boolean(body.force);
+      result = sendWeeklyReports(true, force);
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({ success: true, result: result }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ error: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function doGet(e) {
+  return ContentService.createTextOutput(JSON.stringify({
+    status: "online",
+    service: "Mill Manager Gmail Reporting Engine",
+    time: new Date().toISOString()
+  })).setMimeType(ContentService.MimeType.JSON);
 }

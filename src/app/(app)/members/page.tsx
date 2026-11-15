@@ -12,6 +12,16 @@ import {
   Mail,
   KeyRound,
   ShieldCheck,
+  Search,
+  Users,
+  UtensilsCrossed,
+  Wallet,
+  TrendingUp,
+  TrendingDown,
+  CheckCircle2,
+  AlertCircle,
+  EyeOff,
+  Filter,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -34,26 +44,55 @@ import { MigrationAlert } from "@/components/shared/migration-alert";
 import { MemberDetailsModal } from "@/components/members/member-details-modal";
 import { toast } from "sonner";
 
+// Avatar background colors based on name hash
+const AVATAR_COLORS = [
+  "bg-blue-500/10 text-blue-600 border-blue-500/20",
+  "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+  "bg-amber-500/10 text-amber-600 border-amber-500/20",
+  "bg-purple-500/10 text-purple-600 border-purple-500/20",
+  "bg-rose-500/10 text-rose-600 border-rose-500/20",
+  "bg-indigo-500/10 text-indigo-600 border-indigo-500/20",
+];
+
+function getAvatarColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[index];
+}
+
 export default function MembersPage() {
   const [members, setMembers] = React.useState<Member[]>([]);
   const [summaries, setSummaries] = React.useState<Record<string, MemberSummary>>({});
   const [isLoading, setIsLoading] = React.useState(true);
   const [isTableMissing, setIsTableMissing] = React.useState(false);
 
+  // Filter & Search states
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState<"all" | "active" | "inactive">("all");
+  const [balanceFilter, setBalanceFilter] = React.useState<"all" | "surplus" | "due">("all");
+
   // Modal states
   const [isAddOpen, setIsAddOpen] = React.useState(false);
   const [newMemberName, setNewMemberName] = React.useState("");
   const [newMemberEmail, setNewMemberEmail] = React.useState("");
+  const [newMemberPassword, setNewMemberPassword] = React.useState("");
+  const [createAccountWithMember, setCreateAccountWithMember] = React.useState(false);
+  const [isAdding, setIsAdding] = React.useState(false);
 
   const [editMember, setEditMember] = React.useState<Member | null>(null);
   const [editName, setEditName] = React.useState("");
   const [editEmail, setEditEmail] = React.useState("");
+  const [isEditing, setIsEditing] = React.useState(false);
 
   // Account provisioning state
   const [accountMember, setAccountMember] = React.useState<Member | null>(null);
   const [accountEmail, setAccountEmail] = React.useState("");
   const [accountPassword, setAccountPassword] = React.useState("");
   const [accountRole, setAccountRole] = React.useState<UserRole>("member");
+  const [showPassword, setShowPassword] = React.useState(false);
   const [isProvisioning, setIsProvisioning] = React.useState(false);
 
   // Delete member state
@@ -175,21 +214,47 @@ export default function MembersPage() {
     }
 
     try {
+      setIsAdding(true);
       const supabase = createClient();
-      await addMember(supabase, newMemberName, newMemberEmail.trim() || null);
-      toast.success(`Member "${newMemberName}" added successfully.`);
+      const created = await addMember(supabase, newMemberName.trim(), newMemberEmail.trim() || null);
+
+      // If user checked "Create login account immediately"
+      if (createAccountWithMember && newMemberEmail.trim() && newMemberPassword.trim().length >= 6) {
+        try {
+          await fetch("/api/admin/provision-user", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              memberId: created.id,
+              email: newMemberEmail.trim(),
+              password: newMemberPassword,
+              role: "member",
+            }),
+          });
+          toast.success(`Member "${newMemberName}" & Login account created successfully!`);
+        } catch {
+          toast.warning(`Member created, but account provisioning could not be completed. You can set it from the key icon.`);
+        }
+      } else {
+        toast.success(`Member "${newMemberName}" added successfully.`);
+      }
+
       setNewMemberName("");
       setNewMemberEmail("");
+      setNewMemberPassword("");
+      setCreateAccountWithMember(false);
       setIsAddOpen(false);
       loadData();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";
       if (msg.includes("schema cache") || msg.includes("PGRST205") || msg.includes("does not exist")) {
         setIsTableMissing(true);
-        toast.error("সুপাবেস ডেটাবেসে টেবিল নেই! অনুগ্রহ করে SQL Migration রান করুন।");
+        toast.error("Database table missing. Please apply migrations.");
       } else {
         toast.error("Error adding member: " + msg);
       }
+    } finally {
+      setIsAdding(false);
     }
   };
 
@@ -199,6 +264,7 @@ export default function MembersPage() {
     if (!editMember || !editName.trim()) return;
 
     try {
+      setIsEditing(true);
       const supabase = createClient();
       await updateMember(supabase, editMember.id, {
         name: editName.trim(),
@@ -209,6 +275,8 @@ export default function MembersPage() {
       loadData();
     } catch (err: unknown) {
       toast.error("Error updating member: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setIsEditing(false);
     }
   };
 
@@ -242,7 +310,7 @@ export default function MembersPage() {
         throw new Error(data.error || "Failed to provision account");
       }
 
-      toast.success(`Account for "${accountMember.name}" (${accountEmail}) provisioned successfully!`);
+      toast.success(`Account for "${accountMember.name}" (${accountEmail}) provisioned as ${accountRole.toUpperCase()}!`);
       setAccountMember(null);
       setAccountPassword("");
       loadData();
@@ -290,58 +358,296 @@ export default function MembersPage() {
     }
   };
 
+  // Calculate Group Totals for Overview Header
+  const activeMembers = members.filter((m) => m.status === "active");
+  const inactiveMembers = members.filter((m) => m.status === "inactive");
+  const totalMealsAll = Object.values(summaries).reduce((acc, s) => acc + s.total_meals, 0);
+  const totalDepositsAll = Object.values(summaries).reduce((acc, s) => acc + s.total_deposited, 0);
+  const totalMealCostAll = Object.values(summaries).reduce((acc, s) => acc + s.total_meal_cost, 0);
+  const totalNetBalance = totalDepositsAll - totalMealCostAll;
+
+  // Filtered members list
+  const filteredMembers = React.useMemo(() => {
+    return members.filter((member) => {
+      // 1. Search Query
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        member.name.toLowerCase().includes(q) ||
+        (member.email && member.email.toLowerCase().includes(q));
+
+      // 2. Status Filter
+      const matchesStatus =
+        statusFilter === "all" || member.status === statusFilter;
+
+      // 3. Balance Filter
+      const sum = summaries[member.id] || { balance: 0 };
+      const matchesBalance =
+        balanceFilter === "all" ||
+        (balanceFilter === "surplus" && sum.balance >= 0) ||
+        (balanceFilter === "due" && sum.balance < 0);
+
+      return matchesSearch && matchesStatus && matchesBalance;
+    });
+  }, [members, summaries, searchQuery, statusFilter, balanceFilter]);
+
   return (
     <div className="space-y-6">
+      {/* Page Header */}
       <PageHeader
-        title="Members Management"
-        description="Manage group mess members, profile statuses, and financial balances."
+        title="Members & Meal Roster"
+        description="Comprehensive management of mess members, meal statistics, deposits, and individual balances."
         actions={
           <Button
             variant="primary"
             size="sm"
             onClick={() => setIsAddOpen(true)}
-            className="gap-1.5"
+            className="gap-1.5 shadow-xs"
           >
             <UserPlus className="h-4 w-4" />
-            <span>Add Member</span>
+            <span>Add New Member</span>
           </Button>
         }
       />
 
       <MigrationAlert isTableMissing={isTableMissing} />
 
-      {/* Members List Table */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-3">
-          <CardTitle className="text-base font-semibold">Group Roster ({members.length} Total)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              Loading members...
+      {/* 1. Group Financial & Member Overview Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {/* Active Members Card */}
+        <Card className="border-border/80 shadow-2xs">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex items-center justify-between text-muted-foreground">
+              <span className="text-xs font-semibold uppercase tracking-wider">Members</span>
+              <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                <Users className="h-4 w-4" />
+              </div>
             </div>
-          ) : members.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              No members configured yet. Click &quot;Add Member&quot; above to create your group roster.
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-foreground">{members.length}</span>
+              <span className="text-xs text-muted-foreground font-medium">Total</span>
+            </div>
+            <div className="mt-2 flex items-center gap-1.5 text-xs">
+              <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-emerald-700 dark:text-emerald-400 font-medium">
+                {activeMembers.length} Active
+              </span>
+              {inactiveMembers.length > 0 && (
+                <span className="text-muted-foreground">
+                  • {inactiveMembers.length} Inactive
+                </span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Total Meals Card */}
+        <Card className="border-border/80 shadow-2xs">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex items-center justify-between text-muted-foreground">
+              <span className="text-xs font-semibold uppercase tracking-wider">Total Meals</span>
+              <div className="h-8 w-8 rounded-lg bg-amber-500/10 text-amber-600 flex items-center justify-center">
+                <UtensilsCrossed className="h-4 w-4" />
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-foreground">{totalMealsAll}</span>
+              <span className="text-xs text-muted-foreground font-medium">Served</span>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Expense: <strong className="text-foreground">{formatBDT(totalMealCostAll)}</strong>
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Total Deposits Card */}
+        <Card className="border-border/80 shadow-2xs">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex items-center justify-between text-muted-foreground">
+              <span className="text-xs font-semibold uppercase tracking-wider">Group Deposits</span>
+              <div className="h-8 w-8 rounded-lg bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
+                <Wallet className="h-4 w-4" />
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-1">
+              <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                {formatBDT(totalDepositsAll)}
+              </span>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Collected from all members
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Net Treasury Balance Card */}
+        <Card className="border-border/80 shadow-2xs">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex items-center justify-between text-muted-foreground">
+              <span className="text-xs font-semibold uppercase tracking-wider">Treasury Balance</span>
+              <div
+                className={`h-8 w-8 rounded-lg flex items-center justify-center ${
+                  totalNetBalance >= 0
+                    ? "bg-emerald-500/10 text-emerald-600"
+                    : "bg-destructive/10 text-destructive"
+                }`}
+              >
+                {totalNetBalance >= 0 ? (
+                  <TrendingUp className="h-4 w-4" />
+                ) : (
+                  <TrendingDown className="h-4 w-4" />
+                )}
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-1">
+              <span
+                className={`text-2xl font-bold ${
+                  totalNetBalance >= 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-destructive"
+                }`}
+              >
+                {formatBDT(totalNetBalance)}
+              </span>
+            </div>
+            <div className="mt-2">
+              <Badge
+                variant={totalNetBalance >= 0 ? "success" : "destructive"}
+                className="text-[10px] py-0 px-1.5 font-medium"
+              >
+                {totalNetBalance >= 0 ? "Treasury Surplus" : "Deficit / Uncollected Dues"}
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* 2. Search, Filter & View Controls */}
+      <Card className="border-border/80 shadow-2xs">
+        <CardContent className="p-3.5 sm:p-4">
+          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+            {/* Search Input */}
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder="Search member by name or email..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 pr-8 h-9 text-xs sm:text-sm bg-background"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Filter Pills */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Status Filter */}
+              <div className="flex items-center rounded-lg border border-border bg-muted/30 p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("all")}
+                  className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
+                    statusFilter === "all"
+                      ? "bg-background text-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  All ({members.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("active")}
+                  className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
+                    statusFilter === "active"
+                      ? "bg-background text-foreground shadow-xs font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Active ({activeMembers.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("inactive")}
+                  className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
+                    statusFilter === "inactive"
+                      ? "bg-background text-foreground shadow-xs font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Inactive ({inactiveMembers.length})
+                </button>
+              </div>
+
+              {/* Balance Filter */}
+              <select
+                value={balanceFilter}
+                onChange={(e) => setBalanceFilter(e.target.value as "all" | "surplus" | "due")}
+                className="h-8 px-2.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="all">All Balances</option>
+                <option value="surplus">Surplus (In Credit +৳)</option>
+                <option value="due">Due / Deficit (-৳)</option>
+              </select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 3. Main Members Table & Cards Container */}
+      <Card className="border-border/80 shadow-2xs overflow-hidden">
+        <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border/60 bg-muted/20">
+          <div>
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <Users className="h-4 w-4 text-primary" />
+              <span>Group Roster</span>
+              <span className="text-xs font-normal text-muted-foreground">
+                ({filteredMembers.length} {filteredMembers.length === 1 ? "member" : "members"} displayed)
+              </span>
+            </CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="py-16 text-center space-y-3">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
+              <p className="text-sm text-muted-foreground">Loading members roster and balances...</p>
+            </div>
+          ) : filteredMembers.length === 0 ? (
+            <div className="py-16 text-center space-y-3">
+              <Users className="h-10 w-10 text-muted-foreground/40 mx-auto" />
+              <p className="text-sm font-medium text-foreground">No members match your criteria</p>
+              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                {searchQuery || statusFilter !== "all" || balanceFilter !== "all"
+                  ? "Try resetting your search query or filter options."
+                  : "Click 'Add New Member' to start building your mess group."}
+              </p>
             </div>
           ) : (
             <>
-              {/* Desktop & Tablet Table View */}
+              {/* Desktop Table View */}
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm text-left">
-                  <thead className="text-xs uppercase bg-muted/50 text-muted-foreground border-b border-border">
+                  <thead className="text-[11px] font-semibold uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border/70">
                     <tr>
-                      <th className="py-3 px-4">Member Name</th>
-                      <th className="py-3 px-4">Status</th>
-                      <th className="py-3 px-4 text-center">Total Meals</th>
+                      <th className="py-3 px-4">Member Info</th>
+                      <th className="py-3 px-3">Status</th>
+                      <th className="py-3 px-3">Login Account</th>
+                      <th className="py-3 px-3 text-center">Meals</th>
                       <th className="py-3 px-4 text-right">Meal Cost</th>
-                      <th className="py-3 px-4 text-right">Total Deposited</th>
-                      <th className="py-3 px-4 text-right">Current Balance</th>
+                      <th className="py-3 px-4 text-right">Deposited</th>
+                      <th className="py-3 px-4 text-right">Net Balance</th>
                       <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border">
-                    {members.map((member) => {
+                  <tbody className="divide-y divide-border/60">
+                    {filteredMembers.map((member) => {
                       const sum = summaries[member.id] || {
                         total_meals: 0,
                         total_meal_cost: 0,
@@ -349,58 +655,121 @@ export default function MembersPage() {
                         balance: 0,
                       };
                       const isPositive = sum.balance >= 0;
+                      const avatarColor = getAvatarColor(member.name);
 
                       return (
-                        <tr key={member.id} className="hover:bg-muted/30 transition-colors">
-                          <td className="py-3.5 px-4 font-semibold text-foreground">
-                            <div>{member.name}</div>
-                            {member.email && (
-                              <div className="text-xs text-muted-foreground font-normal flex items-center gap-1 mt-0.5">
-                                <Mail className="h-3 w-3 text-muted-foreground/70" />
-                                <span>{member.email}</span>
-                              </div>
-                            )}
-                          </td>
+                        <tr
+                          key={member.id}
+                          className="hover:bg-muted/30 transition-colors group"
+                        >
+                          {/* Member Info */}
                           <td className="py-3.5 px-4">
-                            <Badge variant={member.status === "active" ? "success" : "secondary"}>
+                            <div className="flex items-center gap-3">
+                              <div
+                                className={`h-9 w-9 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border ${avatarColor}`}
+                              >
+                                {member.name.slice(0, 2).toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <span className="font-semibold text-foreground text-sm block truncate">
+                                  {member.name}
+                                </span>
+                                {member.email ? (
+                                  <span className="text-xs text-muted-foreground flex items-center gap-1 truncate mt-0.5">
+                                    <Mail className="h-3 w-3 text-muted-foreground/70 shrink-0" />
+                                    <span className="truncate">{member.email}</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] text-muted-foreground/60 italic block">
+                                    No email set
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Status */}
+                          <td className="py-3.5 px-3">
+                            <Badge
+                              variant={member.status === "active" ? "success" : "secondary"}
+                              className="text-[11px] font-medium"
+                            >
                               {member.status}
                             </Badge>
                           </td>
-                          <td className="py-3.5 px-4 text-center font-medium">
-                            {sum.total_meals}
+
+                          {/* Login Account Status */}
+                          <td className="py-3.5 px-3">
+                            {member.user_id ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                                <CheckCircle2 className="h-3 w-3" />
+                                <span>Active</span>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAccountMember(member);
+                                  setAccountEmail(member.email || "");
+                                  setAccountPassword("");
+                                  setAccountRole("member");
+                                }}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors border border-border"
+                                title="Click to provision login account"
+                              >
+                                <KeyRound className="h-3 w-3" />
+                                <span>Setup</span>
+                              </button>
+                            )}
                           </td>
-                          <td className="py-3.5 px-4 text-right text-muted-foreground">
+
+                          {/* Meals Count */}
+                          <td className="py-3.5 px-3 text-center font-semibold text-foreground">
+                            <span className="inline-block px-2 py-0.5 rounded-md bg-muted/60 text-xs">
+                              {sum.total_meals}
+                            </span>
+                          </td>
+
+                          {/* Meal Cost */}
+                          <td className="py-3.5 px-4 text-right text-muted-foreground font-medium">
                             {formatBDT(sum.total_meal_cost)}
                           </td>
-                          <td className="py-3.5 px-4 text-right text-emerald-600 dark:text-emerald-400 font-medium">
+
+                          {/* Total Deposited */}
+                          <td className="py-3.5 px-4 text-right font-semibold text-emerald-600 dark:text-emerald-400">
                             {formatBDT(sum.total_deposited)}
                           </td>
-                          <td
-                            className={`py-3.5 px-4 text-right font-bold ${
-                              isPositive
-                                ? "text-emerald-600 dark:text-emerald-400"
-                                : "text-destructive"
-                            }`}
-                          >
-                            {formatBDT(sum.balance)}
-                          </td>
+
+                          {/* Current Balance */}
                           <td className="py-3.5 px-4 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              {/* View Details Button */}
+                            <span
+                              className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold ${
+                                isPositive
+                                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
+                                  : "bg-destructive/10 text-destructive border border-destructive/20"
+                              }`}
+                            >
+                              {formatBDT(sum.balance)}
+                            </span>
+                          </td>
+
+                          {/* Action Buttons */}
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              {/* View Details */}
                               <Button
                                 variant="outline"
-                                size="sm"
+                                size="icon"
                                 onClick={() => handleViewDetail(member.id)}
-                                className="h-8 px-2.5 text-xs gap-1.5 font-medium hover:bg-primary/10 hover:text-primary transition-colors border-border/80"
-                                title="View Member Details"
+                                className="h-8 w-8 text-primary hover:bg-primary/10 transition-colors border-border/80"
+                                title="View Member Ledger & History"
                               >
-                                <Eye className="h-3.5 w-3.5 text-primary" />
-                                <span>View Details</span>
+                                <Eye className="h-3.5 w-3.5" />
                               </Button>
 
-                              {/* Provision / Manage Login Account */}
+                              {/* Provision Credentials */}
                               <Button
-                                variant="ghost"
+                                variant="outline"
                                 size="icon"
                                 onClick={() => {
                                   setAccountMember(member);
@@ -408,22 +777,22 @@ export default function MembersPage() {
                                   setAccountPassword("");
                                   setAccountRole("member");
                                 }}
-                                className="h-8 w-8 text-primary hover:bg-primary/10 transition-colors"
-                                title="Provision / Manage Login Credentials"
+                                className="h-8 w-8 text-amber-600 hover:bg-amber-500/10 transition-colors border-border/80"
+                                title="Provision / Reset Login Credentials"
                               >
                                 <KeyRound className="h-3.5 w-3.5" />
                               </Button>
 
-                              {/* Edit Name Button */}
+                              {/* Edit Name & Email */}
                               <Button
-                                variant="ghost"
+                                variant="outline"
                                 size="icon"
                                 onClick={() => {
                                   setEditMember(member);
                                   setEditName(member.name);
                                   setEditEmail(member.email || "");
                                 }}
-                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                className="h-8 w-8 text-muted-foreground hover:text-foreground transition-colors border-border/80"
                                 title="Edit Member Name & Email"
                               >
                                 <Edit2 className="h-3.5 w-3.5" />
@@ -431,29 +800,25 @@ export default function MembersPage() {
 
                               {/* Activate / Deactivate Toggle */}
                               <Button
-                                variant="ghost"
+                                variant="outline"
                                 size="icon"
                                 onClick={() => handleToggleStatus(member)}
-                                className={`h-8 w-8 ${
+                                className={`h-8 w-8 border-border/80 transition-colors ${
                                   member.status === "active"
-                                    ? "text-amber-600 hover:text-amber-700"
-                                    : "text-emerald-600 hover:text-emerald-700"
+                                    ? "text-amber-600 hover:bg-amber-500/10"
+                                    : "text-emerald-600 hover:bg-emerald-500/10"
                                 }`}
-                                title={
-                                  member.status === "active"
-                                    ? "Deactivate Member"
-                                    : "Activate Member"
-                                }
+                                title={member.status === "active" ? "Deactivate Member" : "Activate Member"}
                               >
                                 <Power className="h-3.5 w-3.5" />
                               </Button>
 
-                              {/* Delete Member Button */}
+                              {/* Delete Member */}
                               <Button
-                                variant="ghost"
+                                variant="outline"
                                 size="icon"
                                 onClick={() => setMemberToDelete(member)}
-                                className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors border-border/80"
                                 title="Delete Member"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -468,8 +833,8 @@ export default function MembersPage() {
               </div>
 
               {/* Mobile Phone Cards View */}
-              <div className="md:hidden space-y-3">
-                {members.map((member) => {
+              <div className="md:hidden divide-y divide-border/60">
+                {filteredMembers.map((member) => {
                   const sum = summaries[member.id] || {
                     total_meals: 0,
                     total_meal_cost: 0,
@@ -477,84 +842,94 @@ export default function MembersPage() {
                     balance: 0,
                   };
                   const isPositive = sum.balance >= 0;
+                  const avatarColor = getAvatarColor(member.name);
 
                   return (
-                    <div
-                      key={member.id}
-                      className="p-3.5 rounded-xl border border-border bg-card/60 shadow-2xs space-y-3"
-                    >
-                      {/* Header */}
-                      <div className="flex items-center justify-between gap-2">
+                    <div key={member.id} className="p-4 space-y-3 bg-card/60">
+                      {/* Top Row: Avatar, Name, Email, Status */}
+                      <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="h-9 w-9 rounded-full bg-primary/10 text-primary font-bold flex items-center justify-center text-xs shrink-0 border border-primary/20">
+                          <div
+                            className={`h-10 w-10 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border ${avatarColor}`}
+                          >
                             {member.name.slice(0, 2).toUpperCase()}
                           </div>
                           <div className="min-w-0">
                             <span className="font-semibold text-foreground text-sm truncate block">
                               {member.name}
                             </span>
-                            {member.email && (
-                              <span className="text-[11px] text-muted-foreground flex items-center gap-1 truncate mt-0.5">
+                            {member.email ? (
+                              <span className="text-xs text-muted-foreground flex items-center gap-1 truncate mt-0.5">
                                 <Mail className="h-3 w-3 text-muted-foreground/70 shrink-0" />
                                 <span className="truncate">{member.email}</span>
                               </span>
+                            ) : (
+                              <span className="text-[11px] text-muted-foreground/60 italic block">
+                                No email
+                              </span>
                             )}
-                            <Badge
-                              variant={member.status === "active" ? "success" : "secondary"}
-                              className="text-[10px] mt-0.5"
-                            >
-                              {member.status}
-                            </Badge>
                           </div>
                         </div>
 
-                        <div className="text-right shrink-0">
-                          <span
-                            className={`text-base font-bold block ${
-                              isPositive
-                                ? "text-emerald-600 dark:text-emerald-400"
-                                : "text-destructive"
-                            }`}
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <Badge
+                            variant={member.status === "active" ? "success" : "secondary"}
+                            className="text-[10px]"
                           >
-                            {formatBDT(sum.balance)}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground">
-                            {isPositive ? "Surplus" : "Due"}
-                          </span>
+                            {member.status}
+                          </Badge>
+                          {member.user_id ? (
+                            <span className="text-[10px] text-emerald-600 font-medium">✓ Login Ready</span>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground">No Login</span>
+                          )}
                         </div>
                       </div>
 
-                      {/* Financial breakdown stats */}
-                      <div className="grid grid-cols-3 gap-1.5 p-2 rounded-lg bg-muted/40 text-xs text-center border border-border/40">
+                      {/* Financial Breakdown Grid */}
+                      <div className="grid grid-cols-3 gap-2 p-2.5 rounded-lg bg-muted/40 text-xs text-center border border-border/50">
                         <div>
                           <span className="text-[10px] text-muted-foreground block">Meals</span>
-                          <span className="font-semibold text-foreground">{sum.total_meals}</span>
+                          <span className="font-bold text-foreground">{sum.total_meals}</span>
                         </div>
                         <div>
-                          <span className="text-[10px] text-muted-foreground block">Cost</span>
+                          <span className="text-[10px] text-muted-foreground block">Expense</span>
                           <span className="font-semibold text-muted-foreground">{formatBDT(sum.total_meal_cost)}</span>
                         </div>
                         <div>
                           <span className="text-[10px] text-muted-foreground block">Deposited</span>
-                          <span className="font-semibold text-emerald-600 dark:text-emerald-400">{formatBDT(sum.total_deposited)}</span>
+                          <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                            {formatBDT(sum.total_deposited)}
+                          </span>
                         </div>
                       </div>
 
-                      {/* Action buttons */}
-                      <div className="flex items-center justify-between pt-2 border-t border-border/50 gap-1.5">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleViewDetail(member.id)}
-                          className="h-8 px-2.5 text-xs gap-1.5 font-medium flex-1 text-primary border-primary/20 hover:bg-primary/10"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          <span>View Details</span>
-                        </Button>
+                      {/* Balance Banner & Actions */}
+                      <div className="flex items-center justify-between pt-1 gap-2">
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">Current Balance</span>
+                          <span
+                            className={`text-sm font-bold ${
+                              isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"
+                            }`}
+                          >
+                            {formatBDT(sum.balance)}
+                          </span>
+                        </div>
 
-                        <div className="flex items-center gap-1 shrink-0">
+                        <div className="flex items-center gap-1">
                           <Button
-                            variant="ghost"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleViewDetail(member.id)}
+                            className="h-8 px-2.5 text-xs text-primary border-primary/20 hover:bg-primary/10"
+                          >
+                            <Eye className="h-3.5 w-3.5 mr-1" />
+                            <span>Ledger</span>
+                          </Button>
+
+                          <Button
+                            variant="outline"
                             size="icon"
                             onClick={() => {
                               setAccountMember(member);
@@ -562,48 +937,34 @@ export default function MembersPage() {
                               setAccountPassword("");
                               setAccountRole("member");
                             }}
-                            className="h-8 w-8 text-primary hover:bg-primary/10 transition-colors"
-                            title="Provision Login Credentials"
+                            className="h-8 w-8 text-amber-600 border-border/80"
+                            title="Manage Login"
                           >
                             <KeyRound className="h-3.5 w-3.5" />
                           </Button>
 
                           <Button
-                            variant="ghost"
+                            variant="outline"
                             size="icon"
                             onClick={() => {
                               setEditMember(member);
                               setEditName(member.name);
                               setEditEmail(member.email || "");
                             }}
-                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                            title="Edit Name & Email"
+                            className="h-8 w-8 text-muted-foreground border-border/80"
+                            title="Edit"
                           >
                             <Edit2 className="h-3.5 w-3.5" />
                           </Button>
 
                           <Button
-                            variant="ghost"
+                            variant="outline"
                             size="icon"
                             onClick={() => handleToggleStatus(member)}
-                            className={`h-8 w-8 ${
-                              member.status === "active"
-                                ? "text-amber-600 hover:text-amber-700"
-                                : "text-emerald-600 hover:text-emerald-700"
-                            }`}
+                            className="h-8 w-8 text-muted-foreground border-border/80"
                             title="Toggle Status"
                           >
                             <Power className="h-3.5 w-3.5" />
-                          </Button>
-
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setMemberToDelete(member)}
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                            title="Delete"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       </div>
@@ -616,12 +977,17 @@ export default function MembersPage() {
         </CardContent>
       </Card>
 
-      {/* Add Member Modal */}
+      {/* 4. MODALS */}
+
+      {/* Modal: Add Member */}
       {isAddOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
-          <Card className="w-full max-w-md shadow-xl border-border max-h-[90vh] overflow-y-auto">
+          <Card className="w-full max-w-md shadow-xl border-border">
             <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border">
-              <CardTitle className="text-base">Add New Member</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">
+                <UserPlus className="h-4 w-4 text-primary" />
+                <span>Add New Member</span>
+              </CardTitle>
               <button
                 type="button"
                 onClick={() => setIsAddOpen(false)}
@@ -633,43 +999,71 @@ export default function MembersPage() {
             <CardContent className="pt-4">
               <form onSubmit={handleAddMember} className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="new-member-name">Member Full Name</Label>
+                  <Label htmlFor="new-name">Member Name (সদস্যের নাম)</Label>
                   <Input
-                    id="new-member-name"
-                    placeholder="e.g. Tuhin"
+                    id="new-name"
+                    placeholder="e.g. Rahim, Karim, Tuhin"
                     value={newMemberName}
                     onChange={(e) => setNewMemberName(e.target.value)}
                     required
                     autoFocus
                   />
                 </div>
+
                 <div className="space-y-1.5">
-                  <Label htmlFor="new-member-email" className="flex items-center gap-1.5">
-                    <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span>Email Address (Optional for Weekly Reports)</span>
-                  </Label>
+                  <Label htmlFor="new-email">Email Address (ইমেইল - ঐচ্ছিক)</Label>
                   <Input
-                    id="new-member-email"
+                    id="new-email"
                     type="email"
-                    placeholder="member@gmail.com"
+                    placeholder="e.g. member@gmail.com"
                     value={newMemberEmail}
                     onChange={(e) => setNewMemberEmail(e.target.value)}
                   />
+                  <p className="text-[11px] text-muted-foreground">
+                    Required if this member should receive weekly automated email statements.
+                  </p>
                 </div>
-                <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-border">
+
+                {/* Optional instant login provisioning */}
+                {newMemberEmail.trim() && (
+                  <div className="p-3 rounded-lg border border-border bg-muted/30 space-y-2.5">
+                    <label className="flex items-center gap-2 text-xs font-semibold text-foreground cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={createAccountWithMember}
+                        onChange={(e) => setCreateAccountWithMember(e.target.checked)}
+                        className="rounded border-border text-primary focus:ring-primary"
+                      />
+                      <span>Create Member Login Account Immediately</span>
+                    </label>
+
+                    {createAccountWithMember && (
+                      <div className="space-y-1 pt-1">
+                        <Label htmlFor="new-password">Initial Password</Label>
+                        <Input
+                          id="new-password"
+                          type="password"
+                          placeholder="At least 6 characters"
+                          value={newMemberPassword}
+                          onChange={(e) => setNewMemberPassword(e.target.value)}
+                          required={createAccountWithMember}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => {
-                      setIsAddOpen(false);
-                      setNewMemberEmail("");
-                    }}
-                    className="w-full sm:w-auto"
+                    onClick={() => setIsAddOpen(false)}
+                    disabled={isAdding}
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" variant="primary" size="sm" className="w-full sm:w-auto">
+                  <Button type="submit" variant="primary" size="sm" isLoading={isAdding}>
                     Add Member
                   </Button>
                 </div>
@@ -679,12 +1073,15 @@ export default function MembersPage() {
         </div>
       )}
 
-      {/* Edit Member Modal */}
+      {/* Modal: Edit Member */}
       {editMember && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
-          <Card className="w-full max-w-md shadow-xl border-border max-h-[90vh] overflow-y-auto">
+          <Card className="w-full max-w-md shadow-xl border-border">
             <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border">
-              <CardTitle className="text-base">Edit Member Details</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Edit2 className="h-4 w-4 text-primary" />
+                <span>Edit Member Details</span>
+              </CardTitle>
               <button
                 type="button"
                 onClick={() => setEditMember(null)}
@@ -696,39 +1093,41 @@ export default function MembersPage() {
             <CardContent className="pt-4">
               <form onSubmit={handleEditMember} className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="edit-member-name">Full Name</Label>
+                  <Label htmlFor="edit-name">Member Name</Label>
                   <Input
-                    id="edit-member-name"
+                    id="edit-name"
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
                     required
                     autoFocus
                   />
                 </div>
+
                 <div className="space-y-1.5">
-                  <Label htmlFor="edit-member-email" className="flex items-center gap-1.5">
-                    <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span>Email Address (For Weekly Reports)</span>
-                  </Label>
+                  <Label htmlFor="edit-email">Email Address</Label>
                   <Input
-                    id="edit-member-email"
+                    id="edit-email"
                     type="email"
                     placeholder="member@gmail.com"
                     value={editEmail}
                     onChange={(e) => setEditEmail(e.target.value)}
                   />
+                  <p className="text-[11px] text-muted-foreground">
+                    Used for weekly meal report delivery and personal login.
+                  </p>
                 </div>
-                <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-border">
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => setEditMember(null)}
-                    className="w-full sm:w-auto"
+                    disabled={isEditing}
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" variant="primary" size="sm" className="w-full sm:w-auto">
+                  <Button type="submit" variant="primary" size="sm" isLoading={isEditing}>
                     Save Changes
                   </Button>
                 </div>
@@ -738,72 +1137,7 @@ export default function MembersPage() {
         </div>
       )}
 
-      {/* Delete Member Confirmation Modal */}
-      {memberToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <Card className="w-full max-w-md shadow-2xl border-destructive/30 max-h-[90vh] overflow-y-auto">
-            <CardHeader className="flex flex-row items-start gap-3 pb-3 border-b border-border/80">
-              <div className="p-2.5 rounded-full bg-destructive/10 text-destructive shrink-0 mt-0.5">
-                <AlertTriangle className="h-5 w-5" />
-              </div>
-              <div className="flex-1">
-                <CardTitle className="text-base text-foreground">
-                  Delete Member: {memberToDelete.name}
-                </CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  সদস্য ডিলিট নিশ্চিতকরণ
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setMemberToDelete(null)}
-                className="text-muted-foreground hover:text-foreground p-1"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </CardHeader>
-            <CardContent className="pt-4 space-y-4">
-              <p className="text-xs text-foreground leading-relaxed">
-                আপনি কি নিশ্চিত যে আপনি <strong>&quot;{memberToDelete.name}&quot;</strong>-কে মেম্বার তালিকা থেকে মুছে ফেলতে চান?
-              </p>
-              <div className="p-3 rounded-lg bg-destructive/5 border border-destructive/20 text-xs text-destructive leading-relaxed space-y-1">
-                <p className="font-semibold flex items-center gap-1.5">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  স্থায়ী সতর্কবার্তা:
-                </p>
-                <p>
-                  এই সদস্যের সাথে সম্পর্কিত সমস্ত খাবার খরচ (Meal Records) এবং জমার লেনদেন (Deposits) স্থায়ীভাবে মুছে ফেলা হবে।
-                </p>
-              </div>
-              <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-border">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setMemberToDelete(null)}
-                  disabled={isDeleting}
-                  className="w-full sm:w-auto"
-                >
-                  Cancel (বাতিল)
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleDeleteMember}
-                  isLoading={isDeleting}
-                  className="gap-1.5 w-full sm:w-auto"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  <span>Yes, Delete Member</span>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Provision Member Login Account Modal */}
+      {/* Modal: Provision / Reset Login Credentials */}
       {accountMember && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
           <Card className="w-full max-w-md shadow-xl border-border max-h-[90vh] overflow-y-auto">
@@ -814,7 +1148,7 @@ export default function MembersPage() {
                   <span>Provision Login Credentials</span>
                 </CardTitle>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Member: <strong>{accountMember.name}</strong>
+                  Target Member: <strong>{accountMember.name}</strong>
                 </p>
               </div>
               <button
@@ -839,57 +1173,65 @@ export default function MembersPage() {
                     autoFocus
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    This email is used to log in and receive weekly meal reports.
+                    This email is used to log into their personal portal.
                   </p>
                 </div>
 
                 <div className="space-y-1.5">
                   <Label htmlFor="account-password">Password (পাসওয়ার্ড)</Label>
-                  <Input
-                    id="account-password"
-                    type="password"
-                    placeholder="At least 6 characters"
-                    value={accountPassword}
-                    onChange={(e) => setAccountPassword(e.target.value)}
-                    required
-                  />
+                  <div className="relative">
+                    <Input
+                      id="account-password"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="At least 6 characters"
+                      value={accountPassword}
+                      onChange={(e) => setAccountPassword(e.target.value)}
+                      required
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
+                      tabIndex={-1}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
                   <p className="text-[11px] text-muted-foreground">
-                    If this user already exists, entering a password will securely reset their access.
+                    If this user already exists, submitting will update their password.
                   </p>
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="account-role">Assigned Application Role</Label>
+                  <Label htmlFor="account-role">Assigned System Role</Label>
                   <select
                     id="account-role"
                     value={accountRole}
                     onChange={(e) => setAccountRole(e.target.value as UserRole)}
-                    className="w-full h-9 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    className="w-full h-9 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                   >
-                    <option value="member">MEMBER (Personal read-only portal & personal reports)</option>
-                    <option value="admin">ADMIN (Full administrative access)</option>
-                    <option value="group_ledger_viewer">GROUP_LEDGER_VIEWER (Confidential aggregate only)</option>
+                    <option value="member">MEMBER (Personal read-only dashboard & statements)</option>
+                    <option value="admin">ADMIN (Full administrative access & settings)</option>
+                    <option value="group_ledger_viewer">GROUP_LEDGER_VIEWER (Confidential aggregate view only)</option>
                   </select>
                 </div>
 
-                <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-border">
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => setAccountMember(null)}
                     disabled={isProvisioning}
-                    className="w-full sm:w-auto"
                   >
                     Cancel
                   </Button>
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    size="sm"
-                    isLoading={isProvisioning}
-                    className="w-full sm:w-auto"
-                  >
+                  <Button type="submit" variant="primary" size="sm" isLoading={isProvisioning}>
                     Provision Account
                   </Button>
                 </div>
@@ -899,7 +1241,54 @@ export default function MembersPage() {
         </div>
       )}
 
-      {/* Member Individual Detail Modal */}
+      {/* Modal: Confirm Permanent Deletion */}
+      {memberToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
+          <Card className="w-full max-w-md shadow-xl border-destructive/40">
+            <CardHeader className="pb-3 border-b border-border">
+              <CardTitle className="text-base text-destructive flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5" />
+                <span>Confirm Permanent Deletion</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4 space-y-4">
+              <p className="text-sm text-foreground">
+                Are you sure you want to permanently delete member{" "}
+                <strong>&quot;{memberToDelete.name}&quot;</strong>?
+              </p>
+              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-xs text-destructive space-y-1">
+                <strong>Warning:</strong>
+                <p>
+                  This action permanently removes the member profile. Meal entries and deposits linked to this member will also be affected. Consider <strong>Deactivating</strong> instead if you wish to preserve historical records.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMemberToDelete(null)}
+                  disabled={isDeleting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleDeleteMember}
+                  isLoading={isDeleting}
+                >
+                  Delete Permanently
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Modal: Detailed Member Ledger & History */}
       <MemberDetailsModal
         isOpen={Boolean(detailMemberId)}
         onClose={() => setDetailMemberId(null)}

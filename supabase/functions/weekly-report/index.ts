@@ -769,6 +769,7 @@ serve(async (req: Request) => {
     }
 
     const force = Boolean(body.force); // If true, bypass duplicate suppression
+    const isManualRun = Boolean(body.isManualRun); // If true, initiated manually by Admin
 
     // Fetch data in parallel
     const [membersRes, settingsRes, mealsRes, depositsRes, logsRes] = await Promise.all([
@@ -792,7 +793,26 @@ serve(async (req: Request) => {
       meal_price: 60,
       friday_meal_price: 120,
       group_ledger_viewer_email: null,
+      auto_email_enabled: false,
     };
+
+    // Safety Switch Check: If automated trigger and auto_email_enabled is FALSE, exit cleanly without sending
+    if (!isManualRun && !settings.auto_email_enabled) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          status: "safety_locked",
+          auto_email_enabled: false,
+          message: "Automatic weekly reporting is currently turned OFF by Admin in Settings. Enable it in the dashboard to resume automated dispatches.",
+          period: { startDate, endDate },
+          reports: [],
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
     const allMeals = (mealsRes.data || []).map((m: any) => ({
       ...m,
       unit_price: Number(m.unit_price),
@@ -997,6 +1017,7 @@ serve(async (req: Request) => {
     return new Response(
       JSON.stringify({
         success: true,
+        auto_email_enabled: Boolean(settings.auto_email_enabled),
         period: { startDate, endDate },
         total_reports: preparedReports.length,
         reports: preparedReports,

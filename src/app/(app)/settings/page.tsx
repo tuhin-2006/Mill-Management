@@ -27,6 +27,7 @@ export default function SettingsPage() {
   const [currency, setCurrency] = React.useState("BDT");
   const [timezone, setTimezone] = React.useState("Asia/Dhaka");
   const [groupLedgerViewerEmail, setGroupLedgerViewerEmail] = React.useState("");
+  const [autoEmailEnabled, setAutoEmailEnabled] = React.useState(false);
   const [isSavingSettings, setIsSavingSettings] = React.useState(false);
 
   // Password change state
@@ -46,6 +47,7 @@ export default function SettingsPage() {
         setCurrency(data.currency);
         setTimezone(data.timezone);
         setGroupLedgerViewerEmail(data.group_ledger_viewer_email || "");
+        setAutoEmailEnabled(Boolean(data.auto_email_enabled));
       } catch (err: unknown) {
         toast.error("Failed to load settings: " + (err instanceof Error ? err.message : ""));
       }
@@ -78,6 +80,7 @@ export default function SettingsPage() {
         currency: currency.trim() || "BDT",
         timezone: timezone.trim() || "Asia/Dhaka",
         group_ledger_viewer_email: groupLedgerViewerEmail.trim() || null,
+        auto_email_enabled: autoEmailEnabled,
       });
 
       toast.success("Settings updated successfully!");
@@ -238,6 +241,58 @@ export default function SettingsPage() {
                 <p className="text-[11px] text-muted-foreground">
                   Receives aggregate-only weekly summaries (Total meals, expenses, deposits, treasury balance). Strictly excludes individual member names and private account balances.
                 </p>
+              </div>
+
+              {/* Automatic Weekly Email Reporting Toggle */}
+              <div className="p-3.5 rounded-xl border border-border bg-card/60 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                      <Clock className="h-4 w-4 text-primary" />
+                      <span>Automatic Friday Email Reports (স্বয়ংক্রিয় সাপ্তাহিক ইমেইল)</span>
+                    </Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Sends separate weekly HTML statements every Friday at 8:00 PM (Asia/Dhaka).
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setAutoEmailEnabled(!autoEmailEnabled)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary ${
+                      autoEmailEnabled ? "bg-emerald-600" : "bg-muted-foreground/30"
+                    }`}
+                    role="switch"
+                    aria-checked={autoEmailEnabled}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                        autoEmailEnabled ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <span
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                      autoEmailEnabled
+                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
+                        : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
+                    }`}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        autoEmailEnabled ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+                      }`}
+                    />
+                    <span>
+                      {autoEmailEnabled
+                        ? "ACTIVE (স্বয়ংক্রিয় পাঠানো চালু)"
+                        : "PAUSED (নিরাপদ লক সক্রিয় - পাঠানো হবে না)"}
+                    </span>
+                  </span>
+                </div>
               </div>
 
               <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
