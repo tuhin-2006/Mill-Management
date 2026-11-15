@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
-import { Wheat, Lock, Mail, AlertCircle } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Wheat, Lock, Mail, AlertCircle, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,25 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { createClient } from "@/lib/supabase/client";
 import { siteConfig } from "@/config/site";
 import { toast } from "sonner";
+
+function TimeoutAlert() {
+  const searchParams = useSearchParams();
+  const reason = searchParams.get("reason");
+
+  if (reason !== "timeout") return null;
+
+  return (
+    <div className="mb-4 flex items-start gap-2.5 p-3 text-xs rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+      <Clock className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+      <div>
+        <p className="font-semibold">সেশন নিষ্ক্রিয়তার সময় শেষ</p>
+        <p className="mt-0.5 text-[11px] leading-relaxed">
+          নিরাপত্তার স্বার্থে দীর্ঘক্ষণ নিষ্ক্রিয় থাকায় আপনার সেশন স্বয়ংক্রিয়ভাবে সমাপ্ত করা হয়েছে। অনুগ্রহ করে পুনরায় লগইন করুন।
+        </p>
+      </div>
+    </div>
+  );
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -80,6 +99,10 @@ export default function LoginPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            <React.Suspense fallback={null}>
+              <TimeoutAlert />
+            </React.Suspense>
+
             {errorMessage && (
               <div className="mb-4 flex items-center gap-2 p-3 text-xs rounded-lg bg-destructive/10 text-destructive border border-destructive/20">
                 <AlertCircle className="h-4 w-4 shrink-0" />

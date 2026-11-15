@@ -104,6 +104,7 @@ export default function MembersPage() {
   }, []);
 
   React.useEffect(() => {
+    let ignore = false;
     async function init() {
       try {
         const supabase = createClient();
@@ -112,6 +113,7 @@ export default function MembersPage() {
           getGroupSummary(supabase),
         ]);
 
+        if (ignore) return;
         setMembers(membersData);
 
         const sumMap: Record<string, MemberSummary> = {};
@@ -122,16 +124,19 @@ export default function MembersPage() {
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "";
         if (msg.includes("schema cache") || msg.includes("PGRST205") || msg.includes("does not exist")) {
-          setIsTableMissing(true);
+          if (!ignore) setIsTableMissing(true);
         } else {
-          toast.error("Failed to load members: " + msg);
+          if (!ignore) toast.error("Failed to load members: " + msg);
         }
       } finally {
-        setIsLoading(false);
+        if (!ignore) setIsLoading(false);
       }
     }
 
-    init();
+    void init();
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   // Open detail view for member

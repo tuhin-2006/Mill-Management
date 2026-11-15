@@ -10,6 +10,45 @@ import {
 } from "@/types";
 import { getTodayInDhaka, getWeekdayName, isFridayDate } from "@/lib/date";
 
+// ==============================================================================
+// In-Memory Fast Cache (Zero-latency client navigation & instant revalidation)
+// ==============================================================================
+interface CacheItem<T> {
+  data: T;
+  timestamp: number;
+}
+
+const memoryCache = new Map<string, CacheItem<unknown>>();
+const DEFAULT_TTL_MS = 25_000; // 25 seconds TTL
+
+export function invalidateCache(prefix?: string): void {
+  if (!prefix) {
+    memoryCache.clear();
+  } else {
+    for (const key of memoryCache.keys()) {
+      if (key.startsWith(prefix)) {
+        memoryCache.delete(key);
+      }
+    }
+  }
+}
+
+function getFromCache<T>(key: string): T | null {
+  if (typeof window === "undefined") return null;
+  const item = memoryCache.get(key);
+  if (!item) return null;
+  if (Date.now() - item.timestamp > DEFAULT_TTL_MS) {
+    memoryCache.delete(key);
+    return null;
+  }
+  return item.data as T;
+}
+
+function setToCache<T>(key: string, data: T): void {
+  if (typeof window === "undefined") return;
+  memoryCache.set(key, { data, timestamp: Date.now() });
+}
+
 /**
  * Default fallback settings
  */
@@ -28,6 +67,9 @@ export const DEFAULT_SETTINGS: Settings = {
  * 1. Fetch system settings
  */
 export async function getSettings(supabase: SupabaseClient): Promise<Settings> {
+  const cached = getFromCache<Settings>("settings");
+  if (cached) return cached;
+
   const { data, error } = await supabase
     .from("settings")
     .select("*")
@@ -38,11 +80,14 @@ export async function getSettings(supabase: SupabaseClient): Promise<Settings> {
     return DEFAULT_SETTINGS;
   }
 
-  return {
+  const result: Settings = {
     ...data,
     meal_price: Number(data.meal_price),
     friday_meal_price: data.friday_meal_price != null ? Number(data.friday_meal_price) : 120.0,
   };
+
+  setToCache("settings", result);
+  return result;
 }
 
 /**
@@ -52,6 +97,7 @@ export async function updateSettings(
   supabase: SupabaseClient,
   updates: Partial<Omit<Settings, "id" | "updated_at">>
 ): Promise<Settings> {
+  invalidateCache();
   const res = await supabase
     .from("settings")
     .update({
@@ -87,7 +133,7 @@ export async function updateSettings(
     throw new Error(`Failed to update settings: ${error.message}`);
   }
 
-  return {
+  const result: Settings = {
     ...data,
     meal_price: Number(data.meal_price),
     friday_meal_price:
@@ -97,12 +143,18 @@ export async function updateSettings(
         ? Number(updates.friday_meal_price)
         : 120.0,
   };
+
+  setToCache("settings", result);
+  return result;
 }
 
 /**
  * 3. Fetch all members
  */
 export async function getMembers(supabase: SupabaseClient): Promise<Member[]> {
+  const cached = getFromCache<Member[]>("members");
+  if (cached) return cached;
+
   const { data, error } = await supabase
     .from("members")
     .select("*")
@@ -112,7 +164,9 @@ export async function getMembers(supabase: SupabaseClient): Promise<Member[]> {
     throw new Error(`Failed to fetch members: ${error.message}`);
   }
 
-  return data || [];
+  const result = data || [];
+  setToCache("members", result);
+  return result;
 }
 
 /**
@@ -122,6 +176,7 @@ export async function addMember(
   supabase: SupabaseClient,
   name: string
 ): Promise<Member> {
+  invalidateCache();
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Member name cannot be empty.");
 
@@ -146,6 +201,7 @@ export async function updateMember(
   id: string,
   updates: { name?: string; status?: "active" | "inactive" }
 ): Promise<Member> {
+  invalidateCache();
   const { data, error } = await supabase
     .from("members")
     .update(updates)
@@ -167,6 +223,7 @@ export async function deleteMember(
   supabase: SupabaseClient,
   id: string
 ): Promise<void> {
+  invalidateCache();
   // Delete associated child records first to satisfy foreign key constraints
   await supabase.from("meal_entries").delete().eq("member_id", id);
   await supabase.from("deposits").delete().eq("member_id", id);
@@ -255,6 +312,8 @@ export async function saveDailyMeals(
     }
     throw new Error(`Failed to save daily meals: ${error.message}`);
   }
+
+  invalidateCache();
 }
 
 /**
@@ -264,6 +323,7 @@ export async function deleteDailyMeals(
   supabase: SupabaseClient,
   dateString: string
 ): Promise<void> {
+  invalidateCache();
   const { error } = await supabase
     .from("meal_entries")
     .delete()
@@ -278,6 +338,9 @@ export async function deleteDailyMeals(
  * 9. Fetch deposits with member details
  */
 export async function getDeposits(supabase: SupabaseClient): Promise<Deposit[]> {
+  const cached = getFromCache<Deposit[]>("deposits");
+  if (cached) return cached;
+
   const { data, error } = await supabase
     .from("deposits")
     .select("*, member:members(*)")
@@ -288,10 +351,13 @@ export async function getDeposits(supabase: SupabaseClient): Promise<Deposit[]> 
     throw new Error(`Failed to fetch deposits: ${error.message}`);
   }
 
-  return (data || []).map((d) => ({
+  const result: Deposit[] = (data || []).map((d) => ({
     ...d,
     amount: Number(d.amount),
   }));
+
+  setToCache("deposits", result);
+  return result;
 }
 
 /**
@@ -306,6 +372,7 @@ export async function addDeposit(
     note?: string;
   }
 ): Promise<Deposit> {
+  invalidateCache();
   if (deposit.amount <= 0) {
     throw new Error("Deposit amount must be greater than zero.");
   }
@@ -344,6 +411,7 @@ export async function updateDeposit(
     note?: string;
   }
 ): Promise<Deposit> {
+  invalidateCache();
   const { data, error } = await supabase
     .from("deposits")
     .update({
@@ -373,10 +441,144 @@ export async function deleteDeposit(
   supabase: SupabaseClient,
   id: string
 ): Promise<void> {
+  invalidateCache();
   const { error } = await supabase.from("deposits").delete().eq("id", id);
   if (error) {
     throw new Error(`Failed to delete deposit: ${error.message}`);
   }
+}
+
+export interface DashboardData {
+  summary: GroupSummary;
+  todayMeals: MealEntry[];
+  recentDeposits: Deposit[];
+}
+
+/**
+ * 12.1 Unified Dashboard Data Fetcher (Fast single parallel query)
+ */
+export async function getDashboardData(
+  supabase: SupabaseClient
+): Promise<DashboardData> {
+  const cached = getFromCache<DashboardData>("dashboard_data");
+  if (cached) return cached;
+
+  const today = getTodayInDhaka();
+
+  // Execute 3 essential tables in parallel in a single round-trip!
+  const [membersRes, mealsRes, depositsRes] = await Promise.all([
+    supabase.from("members").select("*").order("name", { ascending: true }),
+    supabase.from("meal_entries").select("*"),
+    supabase.from("deposits").select("*, member:members(*)").order("deposit_date", { ascending: false }),
+  ]);
+
+  if (membersRes.error) {
+    throw new Error(membersRes.error.message);
+  }
+
+  const members: Member[] = membersRes.data || [];
+  const membersMap = new Map(members.map((m) => [m.id, m]));
+
+  const allMeals: MealEntry[] = (mealsRes.data || []).map((m) => ({
+    ...m,
+    unit_price: Number(m.unit_price),
+    member: membersMap.get(m.member_id),
+  }));
+
+  const allDeposits: Deposit[] = (depositsRes.data || []).map((d) => ({
+    ...d,
+    amount: Number(d.amount),
+  }));
+
+  // Today's meal entries
+  const todayMeals = allMeals.filter((m) => m.meal_date === today);
+
+  // Recent 5 deposits
+  const recentDeposits = allDeposits.slice(0, 5);
+
+  // Member summaries
+  const memberSummaries: MemberSummary[] = members.map((member) => {
+    const memberMeals = allMeals.filter((m) => m.member_id === member.id);
+    const memberDeposits = allDeposits.filter((d) => d.member_id === member.id);
+
+    let totalLunch = 0;
+    let totalDinner = 0;
+    let totalCost = 0;
+
+    for (const meal of memberMeals) {
+      if (meal.quantity > 0) {
+        if (meal.session === "lunch") totalLunch += meal.quantity;
+        if (meal.session === "dinner") totalDinner += meal.quantity;
+        totalCost += meal.quantity * meal.unit_price;
+      }
+    }
+
+    const totalDeposited = memberDeposits.reduce((acc, d) => acc + d.amount, 0);
+    const balance = totalDeposited - totalCost;
+
+    return {
+      id: member.id,
+      name: member.name,
+      status: member.status,
+      total_meals: totalLunch + totalDinner,
+      total_lunch: totalLunch,
+      total_dinner: totalDinner,
+      total_meal_cost: totalCost,
+      total_deposited: totalDeposited,
+      balance,
+    };
+  });
+
+  // Today's group statistics
+  let todayTotalMeals = 0;
+  let todayTotalCost = 0;
+  let todayLunchCount = 0;
+  let todayDinnerCount = 0;
+
+  for (const meal of todayMeals) {
+    if (meal.quantity > 0) {
+      todayTotalMeals += meal.quantity;
+      todayTotalCost += meal.quantity * meal.unit_price;
+      if (meal.session === "lunch") todayLunchCount += meal.quantity;
+      if (meal.session === "dinner") todayDinnerCount += meal.quantity;
+    }
+  }
+
+  // All-time group financial statistics
+  const totalGroupDeposit = allDeposits.reduce((acc, d) => acc + d.amount, 0);
+  const totalGroupExpense = allMeals.reduce(
+    (acc, m) => acc + (m.quantity > 0 ? m.quantity * m.unit_price : 0),
+    0
+  );
+  const remainingGroupBalance = totalGroupDeposit - totalGroupExpense;
+  const activeMembersCount = members.filter((m) => m.status === "active").length;
+
+  const summary: GroupSummary = {
+    today_date: today,
+    today_total_meals: todayTotalMeals,
+    today_total_cost: todayTotalCost,
+    today_lunch_count: todayLunchCount,
+    today_dinner_count: todayDinnerCount,
+    total_group_deposit: totalGroupDeposit,
+    total_group_expense: totalGroupExpense,
+    remaining_group_balance: remainingGroupBalance,
+    active_members_count: activeMembersCount,
+    total_members_count: members.length,
+    member_summaries: memberSummaries,
+  };
+
+  const dashboardData: DashboardData = {
+    summary,
+    todayMeals,
+    recentDeposits,
+  };
+
+  setToCache("dashboard_data", dashboardData);
+  setToCache("group_summary", summary);
+  setToCache("members", members);
+  setToCache("deposits", allDeposits);
+
+  return dashboardData;
 }
 
 /**
@@ -385,6 +587,9 @@ export async function deleteDeposit(
 export async function getGroupSummary(
   supabase: SupabaseClient
 ): Promise<GroupSummary> {
+  const cached = getFromCache<GroupSummary>("group_summary");
+  if (cached) return cached;
+
   const today = getTodayInDhaka();
 
   // Fetch parallel datasets

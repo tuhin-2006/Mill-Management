@@ -11,7 +11,7 @@ import {
   Moon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { getGroupSummary, getDeposits, getMealsForDate } from "@/lib/services";
+import { getDashboardData } from "@/lib/services";
 import { formatBDT, formatFullDate, formatDate } from "@/lib/date";
 import { Deposit, MealEntry, GroupSummary } from "@/types";
 import { PageHeader } from "@/components/layout/page-header";
@@ -29,9 +29,10 @@ export default async function DashboardPage() {
   let isTableMissing = false;
 
   try {
-    summary = await getGroupSummary(supabase);
-    recentDeposits = (await getDeposits(supabase)).slice(0, 5);
-    todayMeals = await getMealsForDate(supabase, summary.today_date);
+    const data = await getDashboardData(supabase);
+    summary = data.summary;
+    recentDeposits = data.recentDeposits;
+    todayMeals = data.todayMeals;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "";
     if (msg.includes("does not exist") || msg.includes("PGRST205") || msg.includes("schema cache")) {

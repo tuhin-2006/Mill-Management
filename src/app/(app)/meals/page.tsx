@@ -70,41 +70,18 @@ export default function DailyMealEntryPage() {
     return JSON.stringify(mealSelections) !== JSON.stringify(savedSelections);
   }, [mealSelections, savedSelections]);
 
-  // 1. Initial Load of Members and Settings
-  React.useEffect(() => {
-    async function loadInitialData() {
-      try {
-        const supabase = createClient();
-        const [membersData, settingsData] = await Promise.all([
-          getMembers(supabase),
-          getSettings(supabase),
-        ]);
-
-        setMembers(membersData);
-        setSettings(settingsData);
-      } catch (err: unknown) {
-        toast.error("Error loading data: " + (err instanceof Error ? err.message : ""));
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    loadInitialData();
-  }, []);
-
-  // 2. Load existing meals whenever selectedDate or members change
-  React.useEffect(() => {
-    async function loadDateMeals() {
-      if (members.length === 0) return;
+  const loadDateMeals = React.useCallback(
+    async (targetDate: string, currentMembers: Member[]) => {
+      if (currentMembers.length === 0) return;
 
       try {
         const supabase = createClient();
-        const existingMeals: MealEntry[] = await getMealsForDate(supabase, selectedDate);
+        const existingMeals: MealEntry[] = await getMealsForDate(supabase, targetDate);
 
+        const isFri = isFridayDate(targetDate);
         const initialMap: Record<string, { lunch: number; dinner: number }> = {};
 
-        // Initialize all active members to 0
-        for (const m of members) {
+        for (const m of currentMembers) {
           initialMap[m.id] = { lunch: 0, dinner: 0 };
         }
 
@@ -118,9 +95,8 @@ export default function DailyMealEntryPage() {
             if (entry.quantity > 0) foundAny = true;
           }
           if (entry.session === "dinner") {
-            // Dinner automatically 0 on Friday
-            initialMap[entry.member_id].dinner = isFriday ? 0 : entry.quantity;
-            if (entry.quantity > 0 && !isFriday) foundAny = true;
+            initialMap[entry.member_id].dinner = isFri ? 0 : entry.quantity;
+            if (entry.quantity > 0 && !isFri) foundAny = true;
           }
         }
 
@@ -130,10 +106,74 @@ export default function DailyMealEntryPage() {
       } catch (err: unknown) {
         console.error("Failed to load date meals:", err);
       }
+    },
+    []
+  );
+
+  // 1. Initial Load: Load members, settings, and initial meals in parallel
+  const initialDateRef = React.useRef(selectedDate);
+  React.useEffect(() => {
+    let isMounted = true;
+    const targetDate = initialDateRef.current;
+    async function loadInitial() {
+      try {
+        const supabase = createClient();
+        const [membersData, settingsData, existingMeals] = await Promise.all([
+          getMembers(supabase),
+          getSettings(supabase),
+          getMealsForDate(supabase, targetDate),
+        ]);
+
+        if (!isMounted) return;
+        setMembers(membersData);
+        setSettings(settingsData);
+
+        const isFri = isFridayDate(targetDate);
+        const initialMap: Record<string, { lunch: number; dinner: number }> = {};
+        for (const m of membersData) {
+          initialMap[m.id] = { lunch: 0, dinner: 0 };
+        }
+
+        let foundAny = false;
+        for (const entry of existingMeals) {
+          if (!initialMap[entry.member_id]) {
+            initialMap[entry.member_id] = { lunch: 0, dinner: 0 };
+          }
+          if (entry.session === "lunch") {
+            initialMap[entry.member_id].lunch = entry.quantity;
+            if (entry.quantity > 0) foundAny = true;
+          }
+          if (entry.session === "dinner") {
+            initialMap[entry.member_id].dinner = isFri ? 0 : entry.quantity;
+            if (entry.quantity > 0 && !isFri) foundAny = true;
+          }
+        }
+
+        setMealSelections(initialMap);
+        setSavedSelections(initialMap);
+        setHasExistingRecord(foundAny);
+      } catch (err: unknown) {
+        toast.error("Error loading data: " + (err instanceof Error ? err.message : ""));
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
     }
 
-    loadDateMeals();
-  }, [selectedDate, members, isFriday]);
+    void loadInitial();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // 2. When selectedDate changes (after mount)
+  const isInitialMount = React.useRef(true);
+  React.useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    loadDateMeals(selectedDate, members);
+  }, [selectedDate, loadDateMeals, members]);
 
   // Date Change with unsaved changes guard
   const handleDateChange = (newDate: string) => {

@@ -1,8 +1,11 @@
 import { createBrowserClient } from "@supabase/ssr";
 
+let client: ReturnType<typeof createBrowserClient> | undefined;
+
 /**
- * Creates a browser Supabase client.
+ * Creates a singleton browser Supabase client.
  * Safe to call in Client Components ("use client").
+ * Reuses the existing client instance to avoid repeated cookie/lock initializations.
  */
 export function createClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -14,5 +17,9 @@ export function createClient() {
     );
   }
 
-  return createBrowserClient(supabaseUrl, supabaseAnonKey);
+  if (!client) {
+    client = createBrowserClient(supabaseUrl, supabaseAnonKey);
+  }
+
+  return client;
 }

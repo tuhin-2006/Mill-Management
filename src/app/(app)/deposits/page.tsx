@@ -71,17 +71,18 @@ export default function DepositsPage() {
       setTotalExpenses(groupSum.total_group_expense);
       setNetBalance(groupSum.remaining_group_balance);
 
-      if (membersData.length > 0 && !selectedMemberId) {
-        setSelectedMemberId(membersData[0].id);
+      if (membersData.length > 0) {
+        setSelectedMemberId((prev) => prev || membersData[0].id);
       }
     } catch (err: unknown) {
       toast.error("Failed to load deposits: " + (err instanceof Error ? err.message : ""));
     } finally {
       setIsLoading(false);
     }
-  }, [selectedMemberId]);
+  }, []);
 
   React.useEffect(() => {
+    let ignore = false;
     async function init() {
       try {
         const supabase = createClient();
@@ -91,24 +92,32 @@ export default function DepositsPage() {
           getGroupSummary(supabase),
         ]);
 
+        if (ignore) return;
         setMembers(membersData);
         setDeposits(depositsData);
         setTotalDeposits(groupSum.total_group_deposit);
         setTotalExpenses(groupSum.total_group_expense);
         setNetBalance(groupSum.remaining_group_balance);
 
-        if (membersData.length > 0 && !selectedMemberId) {
-          setSelectedMemberId(membersData[0].id);
+        if (membersData.length > 0) {
+          setSelectedMemberId((prev) => prev || membersData[0].id);
         }
       } catch (err: unknown) {
-        toast.error("Failed to load deposits: " + (err instanceof Error ? err.message : ""));
+        if (!ignore) {
+          toast.error("Failed to load deposits: " + (err instanceof Error ? err.message : ""));
+        }
       } finally {
-        setIsLoading(false);
+        if (!ignore) {
+          setIsLoading(false);
+        }
       }
     }
 
-    init();
-  }, [selectedMemberId]);
+    void init();
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   // Submit new deposit
   const handleSaveDeposit = async (e: React.FormEvent) => {

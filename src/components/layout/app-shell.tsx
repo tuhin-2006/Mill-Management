@@ -22,6 +22,8 @@ import { siteConfig } from "@/config/site";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
+import { invalidateCache } from "@/lib/services";
+import { useInactivityLogout } from "@/hooks/use-inactivity-logout";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -32,9 +34,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [isCollapsed, setIsCollapsed] = React.useState(false);
   const [isLoggingOut, setIsLoggingOut] = React.useState(false);
 
+  // Automatic logout on inactivity (15 mins with 1 min advance alert)
+  useInactivityLogout();
+
   const handleLogout = async () => {
     try {
       setIsLoggingOut(true);
+      invalidateCache();
       const supabase = createClient();
       await supabase.auth.signOut();
       toast.success("Logged out successfully");
