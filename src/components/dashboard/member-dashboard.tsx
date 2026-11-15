@@ -11,12 +11,18 @@ import {
   CheckCircle2,
   Clock,
   AlertTriangle,
+  Filter,
+  RotateCcw,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatBDT, formatDate, formatFullDate } from "@/lib/date";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { formatBDT, formatDate, formatFullDate, getPresetDateRange, DatePreset } from "@/lib/date";
 import { downloadCSV } from "@/lib/csv";
+import { createClient } from "@/lib/supabase/client";
+import { getMemberPersonalStatement } from "@/lib/services";
 import { MemberPersonalStatement } from "@/types";
 import { toast } from "sonner";
 
@@ -27,10 +33,59 @@ interface MemberDashboardProps {
 export function MemberDashboard({ initialData }: MemberDashboardProps) {
   const [data, setData] = React.useState<MemberPersonalStatement>(initialData);
   const [activeTab, setActiveTab] = React.useState<"all" | "meals" | "deposits">("all");
+  const [activePreset, setActivePreset] = React.useState<DatePreset | "custom">("all");
+  const [startDate, setStartDate] = React.useState("");
+  const [endDate, setEndDate] = React.useState("");
+  const [isLoadingRange, setIsLoadingRange] = React.useState(false);
 
   const member = data.member;
   const summary = data.summary;
   const isAdvance = summary.balance >= 0;
+
+  const fetchStatement = React.useCallback(async (start?: string, end?: string) => {
+    try {
+      setIsLoadingRange(true);
+      const supabase = createClient();
+      const res = await getMemberPersonalStatement(supabase, member.id, start || undefined, end || undefined);
+      if (res) {
+        setData(res);
+      }
+    } catch (err: unknown) {
+      toast.error("Failed to load records for date range: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setIsLoadingRange(false);
+    }
+  }, [member.id]);
+
+  const handlePreset = (preset: DatePreset) => {
+    setActivePreset(preset);
+    if (preset === "all") {
+      setStartDate("");
+      setEndDate("");
+      void fetchStatement(undefined, undefined);
+    } else {
+      const range = getPresetDateRange(preset);
+      setStartDate(range.startDate);
+      setEndDate(range.endDate);
+      void fetchStatement(range.startDate, range.endDate);
+    }
+  };
+
+  const handleCustomStartDate = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setActivePreset("custom");
+    setStartDate(e.target.value);
+    void fetchStatement(e.target.value, endDate);
+  };
+
+  const handleCustomEndDate = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setActivePreset("custom");
+    setEndDate(e.target.value);
+    void fetchStatement(startDate, e.target.value);
+  };
+
+  const handleResetToAll = () => {
+    handlePreset("all");
+  };
 
   // Export personal records to CSV
   const handleExportCSV = () => {
@@ -81,6 +136,115 @@ export function MemberDashboard({ initialData }: MemberDashboardProps) {
           </Button>
         </div>
       </div>
+
+      {/* Date Filter & Presets Bar */}
+      <Card className="border-border shadow-xs">
+        <CardContent className="p-4 sm:p-5 space-y-3.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 text-xs scrollbar-none">
+              <span className="text-xs font-semibold text-muted-foreground mr-1 flex items-center gap-1 shrink-0">
+                <Filter className="h-3.5 w-3.5" />
+                <span>Period:</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => handlePreset("this_week")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer shrink-0 ${
+                  activePreset === "this_week"
+                    ? "bg-primary text-primary-foreground shadow-2xs"
+                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                This Week (এই সপ্তাহ)
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePreset("this_month")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer shrink-0 ${
+                  activePreset === "this_month"
+                    ? "bg-primary text-primary-foreground shadow-2xs"
+                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                This Month (এই মাস)
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePreset("last_month")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer shrink-0 ${
+                  activePreset === "last_month"
+                    ? "bg-primary text-primary-foreground shadow-2xs"
+                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                Last Month (গত মাস)
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePreset("all")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer shrink-0 ${
+                  activePreset === "all"
+                    ? "bg-primary text-primary-foreground shadow-2xs"
+                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                All Time (সব রেকর্ড)
+              </button>
+            </div>
+
+            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <Calendar className="h-3.5 w-3.5 text-primary shrink-0" />
+              <span>
+                {startDate
+                  ? `${formatDate(startDate)} → ${endDate ? formatDate(endDate) : "Today"}`
+                  : "All Records (Inception to Date)"}
+              </span>
+              {isLoadingRange && (
+                <div className="h-3 w-3 border-2 border-primary border-t-transparent rounded-full animate-spin ml-1" />
+              )}
+            </div>
+          </div>
+
+          {/* Custom Date Pickers */}
+          <div className="pt-2 border-t border-border/60 flex flex-wrap items-end gap-3">
+            <div className="space-y-1 flex-1 sm:flex-initial min-w-[140px]">
+              <Label htmlFor="m-start-date" className="text-[11px] font-semibold text-muted-foreground">
+                From Date
+              </Label>
+              <Input
+                id="m-start-date"
+                type="date"
+                value={startDate}
+                onChange={handleCustomStartDate}
+                className="h-9 text-xs"
+              />
+            </div>
+            <div className="space-y-1 flex-1 sm:flex-initial min-w-[140px]">
+              <Label htmlFor="m-end-date" className="text-[11px] font-semibold text-muted-foreground">
+                To Date
+              </Label>
+              <Input
+                id="m-end-date"
+                type="date"
+                value={endDate}
+                onChange={handleCustomEndDate}
+                className="h-9 text-xs"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleResetToAll}
+                className="h-9 text-xs gap-1.5"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Reset to All</span>
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Primary Financial KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

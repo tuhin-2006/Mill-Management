@@ -1,37 +1,252 @@
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+"use client";
+
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import { UtensilsCrossed, Calendar, Filter, RotateCcw, Download } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 import { getCurrentUserProfile, getMemberPersonalStatement } from "@/lib/services";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
-import { UtensilsCrossed } from "lucide-react";
-import { formatDate, formatBDT } from "@/lib/date";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { formatDate, formatBDT, getPresetDateRange, DatePreset } from "@/lib/date";
+import { downloadCSV } from "@/lib/csv";
+import { MemberPersonalStatement } from "@/types";
+import { toast } from "sonner";
 
-export default async function MyMealsPage() {
-  const supabase = await createClient();
-  const profile = await getCurrentUserProfile(supabase);
+export default function MyMealsPage() {
+  const router = useRouter();
+  const [statement, setStatement] = React.useState<MemberPersonalStatement | null>(null);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [memberId, setMemberId] = React.useState<string | null>(null);
 
-  if (!profile || profile.role !== "member" || !profile.member_id) {
-    redirect("/");
-  }
+  const [activePreset, setActivePreset] = React.useState<DatePreset | "custom">("this_month");
+  const defaultRange = React.useMemo(() => getPresetDateRange("this_month"), []);
+  const [startDate, setStartDate] = React.useState(defaultRange.startDate);
+  const [endDate, setEndDate] = React.useState(defaultRange.endDate);
 
-  const statement = await getMemberPersonalStatement(supabase, profile.member_id);
-  if (!statement) {
-    redirect("/");
-  }
+  // Initial user check
+  React.useEffect(() => {
+    async function initUser() {
+      const supabase = createClient();
+      const profile = await getCurrentUserProfile(supabase);
+      if (!profile || profile.role !== "member" || !profile.member_id) {
+        router.replace("/");
+        return;
+      }
+      setMemberId(profile.member_id);
+    }
+    void initUser();
+  }, [router]);
+
+  // Fetch data on range change
+  React.useEffect(() => {
+    if (!memberId) return;
+    let ignore = false;
+
+    async function loadData() {
+      try {
+        setIsLoading(true);
+        const supabase = createClient();
+        const res = await getMemberPersonalStatement(
+          supabase,
+          memberId!,
+          startDate || undefined,
+          endDate || undefined
+        );
+        if (!ignore) {
+          setStatement(res);
+        }
+      } catch (err: unknown) {
+        if (!ignore) {
+          toast.error("Failed to load meal history: " + (err instanceof Error ? err.message : ""));
+        }
+      } finally {
+        if (!ignore) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void loadData();
+    return () => {
+      ignore = true;
+    };
+  }, [memberId, startDate, endDate]);
+
+  const handlePreset = (preset: DatePreset) => {
+    setActivePreset(preset);
+    if (preset === "all") {
+      setStartDate("");
+      setEndDate("");
+    } else {
+      const range = getPresetDateRange(preset);
+      setStartDate(range.startDate);
+      setEndDate(range.endDate);
+    }
+  };
+
+  const handleCustomStartDate = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setActivePreset("custom");
+    setStartDate(e.target.value);
+  };
+
+  const handleCustomEndDate = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setActivePreset("custom");
+    setEndDate(e.target.value);
+  };
+
+  const handleExportCSV = () => {
+    if (!statement || statement.dailyMeals.length === 0) {
+      toast.info("No meal records to export.");
+      return;
+    }
+    const headers = ["Date", "Day", "Lunch", "Dinner", "Total Meals", "Unit Price", "Meal Cost (BDT)"];
+    const rows = statement.dailyMeals.map((m) => [
+      m.meal_date,
+      m.day_name,
+      m.lunch.toString(),
+      m.dinner.toString(),
+      m.total_meals.toString(),
+      m.unit_price.toString(),
+      m.cost.toString(),
+    ]);
+    downloadCSV(`my_meal_history_${startDate || "all"}_to_${endDate || "current"}`, headers, rows);
+    toast.success("Meal history exported to CSV.");
+  };
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Personal Meal Attendance History"
         description="Detailed record of all daily lunch and dinner meals logged for your account"
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportCSV}
+            className="gap-1.5 text-xs h-9"
+          >
+            <Download className="h-4 w-4" />
+            <span>Export Meals CSV</span>
+          </Button>
+        }
       />
 
+      {/* Date Filter & Presets Bar */}
+      <Card className="border-border shadow-xs">
+        <CardContent className="p-4 sm:p-5 space-y-3.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 text-xs scrollbar-none">
+              <span className="text-xs font-semibold text-muted-foreground mr-1 flex items-center gap-1 shrink-0">
+                <Filter className="h-3.5 w-3.5" />
+                <span>Period:</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => handlePreset("this_week")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer shrink-0 ${
+                  activePreset === "this_week"
+                    ? "bg-primary text-primary-foreground shadow-2xs"
+                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                This Week (এই সপ্তাহ)
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePreset("this_month")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer shrink-0 ${
+                  activePreset === "this_month"
+                    ? "bg-primary text-primary-foreground shadow-2xs"
+                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                This Month (এই মাস)
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePreset("last_month")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer shrink-0 ${
+                  activePreset === "last_month"
+                    ? "bg-primary text-primary-foreground shadow-2xs"
+                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                Last Month (গত মাস)
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePreset("all")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer shrink-0 ${
+                  activePreset === "all"
+                    ? "bg-primary text-primary-foreground shadow-2xs"
+                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                All Time (সব রেকর্ড)
+              </button>
+            </div>
+
+            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <Calendar className="h-3.5 w-3.5 text-primary shrink-0" />
+              <span>
+                {startDate
+                  ? `${formatDate(startDate)} → ${endDate ? formatDate(endDate) : "Today"}`
+                  : "All Records (Inception to Date)"}
+              </span>
+            </div>
+          </div>
+
+          <div className="pt-2 border-t border-border/60 flex flex-wrap items-end gap-3">
+            <div className="space-y-1 flex-1 sm:flex-initial min-w-[140px]">
+              <Label htmlFor="m-start-date" className="text-[11px] font-semibold text-muted-foreground">
+                From Date
+              </Label>
+              <Input
+                id="m-start-date"
+                type="date"
+                value={startDate}
+                onChange={handleCustomStartDate}
+                className="h-9 text-xs"
+              />
+            </div>
+            <div className="space-y-1 flex-1 sm:flex-initial min-w-[140px]">
+              <Label htmlFor="m-end-date" className="text-[11px] font-semibold text-muted-foreground">
+                To Date
+              </Label>
+              <Input
+                id="m-end-date"
+                type="date"
+                value={endDate}
+                onChange={handleCustomEndDate}
+                className="h-9 text-xs"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handlePreset("all")}
+                className="h-9 text-xs gap-1.5"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Reset to All</span>
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
           <CardContent className="p-4 text-center">
-            <span className="text-xs text-muted-foreground">Total Meals</span>
+            <span className="text-xs text-muted-foreground">Period Total Meals</span>
             <div className="text-2xl font-bold text-foreground mt-1">
-              {statement.summary.total_meals}
+              {statement?.summary.total_meals ?? 0}
             </div>
           </CardContent>
         </Card>
@@ -39,7 +254,7 @@ export default async function MyMealsPage() {
           <CardContent className="p-4 text-center">
             <span className="text-xs text-muted-foreground">Lunch Meals</span>
             <div className="text-2xl font-bold text-foreground mt-1">
-              {statement.summary.total_lunch}
+              {statement?.summary.total_lunch ?? 0}
             </div>
           </CardContent>
         </Card>
@@ -47,12 +262,13 @@ export default async function MyMealsPage() {
           <CardContent className="p-4 text-center">
             <span className="text-xs text-muted-foreground">Dinner Meals</span>
             <div className="text-2xl font-bold text-foreground mt-1">
-              {statement.summary.total_dinner}
+              {statement?.summary.total_dinner ?? 0}
             </div>
           </CardContent>
         </Card>
       </div>
 
+      {/* Table */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -64,9 +280,14 @@ export default async function MyMealsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {statement.dailyMeals.length === 0 ? (
+          {isLoading ? (
+            <div className="py-12 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+              <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <span>Loading meal records...</span>
+            </div>
+          ) : !statement || statement.dailyMeals.length === 0 ? (
             <div className="py-8 text-center text-xs text-muted-foreground">
-              No meal records found.
+              No meal records found for the selected period.
             </div>
           ) : (
             <div className="overflow-x-auto">

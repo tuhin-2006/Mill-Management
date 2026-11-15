@@ -830,10 +830,15 @@ serve(async (req: Request) => {
     const datesInRange = getDateRange(startDate, endDate);
     const preparedReports: PreparedReport[] = [];
 
+    const targetMemberId = (body.targetMemberId as string) || (body.memberId as string);
+    const targetMembers = targetMemberId
+      ? members.filter((m: any) => m.id === targetMemberId)
+      : members;
+
     // --------------------------------------------------------------------------
     // 1. Process Individual Member Reports
     // --------------------------------------------------------------------------
-    for (const member of members) {
+    for (const member of targetMembers) {
       const email = member.email ? member.email.trim() : null;
       if (!email) {
         // Member has no configured email; skip generating report
@@ -927,7 +932,7 @@ serve(async (req: Request) => {
       ? settings.group_ledger_viewer_email.trim()
       : null;
 
-    if (groupViewerEmail) {
+    if (!targetMemberId && groupViewerEmail) {
       // Calculate daily group aggregates across all meals
       let totalPeriodLunch = 0;
       let totalPeriodDinner = 0;

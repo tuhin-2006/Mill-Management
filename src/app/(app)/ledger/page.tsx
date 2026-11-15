@@ -8,17 +8,32 @@ import {
   RotateCcw,
   UtensilsCrossed,
   TrendingUp,
+  Receipt,
+  Wallet,
+  ChevronDown,
+  ChevronUp,
+  CheckCircle2,
+  AlertCircle,
+  CreditCard,
+  User,
+  Search,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { getPeriodLedgerReport } from "@/lib/services";
 import {
   formatBDT,
   formatDate,
+  formatFullDate,
   getPresetDateRange,
   DatePreset,
 } from "@/lib/date";
 import { downloadCSV } from "@/lib/csv";
-import { PeriodLedgerReport } from "@/types";
+import {
+  PeriodLedgerReport,
+  DailyLedgerRow,
+  PeriodPaymentRecord,
+  PeriodMemberStatement,
+} from "@/types";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,11 +42,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
+type LedgerTab = "daily" | "payments" | "members";
+
 export default function TotalMillLedgerPage() {
   const defaultRange = React.useMemo(() => getPresetDateRange("this_month"), []);
   const [activePreset, setActivePreset] = React.useState<DatePreset | "custom">("this_month");
   const [startDate, setStartDate] = React.useState(defaultRange.startDate);
   const [endDate, setEndDate] = React.useState(defaultRange.endDate);
+
+  const [activeTab, setActiveTab] = React.useState<LedgerTab>("daily");
+  const [expandedDates, setExpandedDates] = React.useState<Set<string>>(new Set());
+  const [paymentSearch, setPaymentSearch] = React.useState("");
 
   const [report, setReport] = React.useState<PeriodLedgerReport | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -85,8 +106,20 @@ export default function TotalMillLedgerPage() {
     handlePreset("all");
   };
 
-  // Export CSV
-  const handleExportCSV = () => {
+  const toggleDateExpanded = (date: string) => {
+    setExpandedDates((prev) => {
+      const next = new Set(prev);
+      if (next.has(date)) {
+        next.delete(date);
+      } else {
+        next.add(date);
+      }
+      return next;
+    });
+  };
+
+  // Export Daily Ledger CSV
+  const handleExportDailyCSV = () => {
     if (!report || report.dailyRows.length === 0) {
       toast.info("No daily meal records to export for this period.");
       return;
@@ -99,8 +132,11 @@ export default function TotalMillLedgerPage() {
       "Lunch Meals",
       "Dinner Meals",
       "Total Meals",
-      "Daily Cost (BDT)",
+      "Daily Meal Cost (BDT)",
+      "Daily Payments (BDT)",
       "Members Ate",
+      "Previous Balance (BDT)",
+      "Running Balance (BDT)",
     ];
 
     const rows = report.dailyRows.map((r) => [
@@ -111,15 +147,58 @@ export default function TotalMillLedgerPage() {
       r.dinner_count,
       r.total_meals,
       r.total_cost,
+      r.daily_deposit ?? 0,
       r.active_members_ate,
+      r.previous_day_balance ?? 0,
+      r.running_balance ?? 0,
     ]);
 
-    const rangeLabel = startDate
-      ? `${startDate}_to_${endDate || "current"}`
-      : "all_records";
-    downloadCSV(`total_mill_ledger_${rangeLabel}`, headers, rows);
-    toast.success("Daily meal ledger exported to CSV successfully.");
+    const rangeLabel = startDate ? `${startDate}_to_${endDate || "current"}` : "all_records";
+    downloadCSV(`daily_running_ledger_${rangeLabel}`, headers, rows);
+    toast.success("Daily running ledger exported to CSV successfully.");
   };
+
+  // Export Payments CSV
+  const handleExportPaymentsCSV = () => {
+    const payments = report?.paymentTransactions || [];
+    if (payments.length === 0) {
+      toast.info("No payment transactions to export for this period.");
+      return;
+    }
+
+    const headers = [
+      "Payment Date",
+      "Member Name",
+      "Amount (BDT)",
+      "Note / Details",
+      "Recorded Timestamp",
+    ];
+
+    const rows = payments.map((p) => [
+      p.deposit_date,
+      p.member_name,
+      p.amount,
+      p.note || "Regular Mess Deposit",
+      p.created_at || "",
+    ]);
+
+    const rangeLabel = startDate ? `${startDate}_to_${endDate || "current"}` : "all_records";
+    downloadCSV(`payment_details_${rangeLabel}`, headers, rows);
+    toast.success("Payment details exported to CSV successfully.");
+  };
+
+  // Filtered Payments
+  const filteredPayments = React.useMemo(() => {
+    const list = report?.paymentTransactions || [];
+    if (!paymentSearch.trim()) return list;
+    const q = paymentSearch.toLowerCase();
+    return list.filter(
+      (p) =>
+        p.member_name.toLowerCase().includes(q) ||
+        (p.note && p.note.toLowerCase().includes(q)) ||
+        p.deposit_date.includes(q)
+    );
+  }, [report?.paymentTransactions, paymentSearch]);
 
   const isPreviousDue = (report?.opening.balance ?? 0) < 0;
   const isClosingPositive = (report?.closing.balance ?? 0) >= 0;
@@ -128,18 +207,32 @@ export default function TotalMillLedgerPage() {
     <div className="space-y-6">
       {/* Page Header */}
       <PageHeader
-        title="Total Mill Ledger"
-        description="Comprehensive group meal accounting, daily consumption records, and period settlements."
+        title="Total Mill Ledger (খতিয়ান ও নিরীক্ষা)"
+        description="Daily meal accounting, previous & running balance calculation, and dedicated payment logs."
         actions={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExportCSV}
-            className="gap-2 h-9 text-xs"
-          >
-            <Download className="h-4 w-4" />
-            <span>Export CSV</span>
-          </Button>
+          <div className="flex items-center gap-2">
+            {activeTab === "payments" ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportPaymentsCSV}
+                className="gap-2 h-9 text-xs"
+              >
+                <Download className="h-4 w-4" />
+                <span>Export Payments CSV</span>
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportDailyCSV}
+                className="gap-2 h-9 text-xs"
+              >
+                <Download className="h-4 w-4" />
+                <span>Export Daily Ledger CSV</span>
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -155,17 +248,6 @@ export default function TotalMillLedgerPage() {
               </span>
               <button
                 type="button"
-                onClick={() => handlePreset("this_month")}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer shrink-0 ${
-                  activePreset === "this_month"
-                    ? "bg-primary text-primary-foreground shadow-2xs"
-                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                This Month
-              </button>
-              <button
-                type="button"
                 onClick={() => handlePreset("this_week")}
                 className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer shrink-0 ${
                   activePreset === "this_week"
@@ -173,7 +255,18 @@ export default function TotalMillLedgerPage() {
                     : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
               >
-                This Week
+                This Week (এই সপ্তাহ)
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePreset("this_month")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer shrink-0 ${
+                  activePreset === "this_month"
+                    ? "bg-primary text-primary-foreground shadow-2xs"
+                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                This Month (এই মাস)
               </button>
               <button
                 type="button"
@@ -184,7 +277,7 @@ export default function TotalMillLedgerPage() {
                     : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
               >
-                Last Month
+                Last Month (গত মাস)
               </button>
               <button
                 type="button"
@@ -195,7 +288,7 @@ export default function TotalMillLedgerPage() {
                     : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
               >
-                All Time
+                All Time (শুরু থেকে আজ)
               </button>
             </div>
 
@@ -266,7 +359,7 @@ export default function TotalMillLedgerPage() {
           <CardContent className="p-4 space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Previous Balance
+                Previous Balance (পূর্বের ব্যালেন্স)
               </span>
               <Badge
                 variant={!startDate ? "secondary" : isPreviousDue ? "destructive" : "success"}
@@ -301,7 +394,7 @@ export default function TotalMillLedgerPage() {
           <CardContent className="p-4 space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Period Meal Expense
+                Period Meal Expense (মিল খরচ)
               </span>
               <div className="p-1.5 bg-primary/10 text-primary rounded-lg shrink-0">
                 <UtensilsCrossed className="h-3.5 w-3.5" />
@@ -322,7 +415,7 @@ export default function TotalMillLedgerPage() {
           <CardContent className="p-4 space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Period Deposits
+                Period Payments (মোট জমা)
               </span>
               <div className="p-1.5 bg-emerald-500/10 text-emerald-600 rounded-lg shrink-0">
                 <TrendingUp className="h-3.5 w-3.5" />
@@ -332,7 +425,7 @@ export default function TotalMillLedgerPage() {
               +{formatBDT(report?.period.total_deposit ?? 0)}
             </div>
             <p className="text-[11px] text-muted-foreground truncate">
-              Period net: {formatBDT(report?.period.net_flow ?? 0)}
+              Period net: {formatBDT(report?.period.net_flow ?? 0)} ({report?.paymentTransactions?.length ?? 0} payments)
             </p>
           </CardContent>
         </Card>
@@ -348,7 +441,7 @@ export default function TotalMillLedgerPage() {
           <CardContent className="p-4 space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Net Current Balance
+                Closing Balance (বর্তমান ব্যালেন্স)
               </span>
               <Badge
                 variant={isClosingPositive ? "success" : "destructive"}
@@ -367,143 +460,679 @@ export default function TotalMillLedgerPage() {
               {formatBDT(report?.closing.balance ?? 0)}
             </div>
             <p className="text-[11px] text-muted-foreground truncate">
-              Previous Balance + Deposits - Meal Cost
+              Previous Balance + Payments - Meal Cost
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Daily Meal Ledger Records Table */}
-      <Card className="border-border shadow-xs">
-        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-border/60">
-          <div>
-            <CardTitle className="text-base sm:text-lg font-bold">
-              Daily Meal Records
-            </CardTitle>
-            <CardDescription>
-              Detailed daily session consumption, meal costs, and active member attendance
-            </CardDescription>
-          </div>
+      {/* Navigation Tabs for Views */}
+      <div className="flex border-b border-border gap-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab("daily")}
+          className={`pb-3 px-3.5 text-xs font-semibold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            activeTab === "daily"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <UtensilsCrossed className="h-4 w-4" />
+          <span>Daily Running Ledger (প্রতিদিনের মিল ও রানিং হিসাব)</span>
           {report && (
-            <Badge variant="outline" className="text-xs self-start sm:self-auto">
-              {report.dailyRows.length} Days Recorded
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+              {report.dailyRows.length} Days
             </Badge>
           )}
-        </CardHeader>
-        <CardContent className="pt-4">
-          {isLoading ? (
-            <div className="py-16 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-2">
-              <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              <span>Loading daily meal ledger...</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("payments")}
+          className={`pb-3 px-3.5 text-xs font-semibold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            activeTab === "payments"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <CreditCard className="h-4 w-4" />
+          <span>Payment Details (পেমেন্ট হিস্ট্রি - কবে পেমেন্ট হয়েছে)</span>
+          {report?.paymentTransactions && (
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+              {report.paymentTransactions.length} Paid
+            </Badge>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("members")}
+          className={`pb-3 px-3.5 text-xs font-semibold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            activeTab === "members"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <User className="h-4 w-4" />
+          <span>Member Statement Summary (সদস্যদের চূড়ান্ত খতিয়ান)</span>
+          {report?.memberStatements && (
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+              {report.memberStatements.length} Members
+            </Badge>
+          )}
+        </button>
+      </div>
+
+      {/* =========================================================================
+          TAB 1: DAILY RUNNING LEDGER
+          ========================================================================= */}
+      {activeTab === "daily" && (
+        <Card className="border-border shadow-xs">
+          <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-border/60">
+            <div>
+              <CardTitle className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <span>Daily Session Consumption & Running Balance</span>
+              </CardTitle>
+              <CardDescription>
+                Shows each day&apos;s previous balance, meal cost added, payments received, and updated running balance.
+              </CardDescription>
             </div>
-          ) : !report || report.dailyRows.length === 0 ? (
-            <div className="py-12 text-center text-xs text-muted-foreground">
-              No daily meal entries found in this selected period.
-            </div>
-          ) : (
-            <>
-              {/* Desktop & Tablet Table View */}
-              <div className="hidden md:block overflow-x-auto rounded-xl border border-border bg-card">
-                <table className="w-full text-sm text-left">
-                  <thead className="text-[11px] uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border">
-                    <tr>
-                      <th className="py-3 px-4 font-semibold">Date</th>
-                      <th className="py-3 px-4 font-semibold">Weekday</th>
-                      <th className="py-3 px-4 text-center font-semibold">Lunch</th>
-                      <th className="py-3 px-4 text-center font-semibold">Dinner</th>
-                      <th className="py-3 px-4 text-center font-semibold">Total Meals</th>
-                      <th className="py-3 px-4 text-right font-semibold">Daily Cost</th>
-                      <th className="py-3 px-4 text-right font-semibold">Members Ate</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {report.dailyRows.map((row) => (
-                      <tr key={row.meal_date} className="hover:bg-muted/40 transition-colors">
-                        <td className="py-3 px-4 font-medium text-foreground">
-                          {formatDate(row.meal_date)}
-                        </td>
-                        <td className="py-3 px-4 text-muted-foreground">
+            {report && (
+              <Badge variant="outline" className="text-xs self-start sm:self-auto">
+                {report.dailyRows.length} Days Recorded
+              </Badge>
+            )}
+          </CardHeader>
+          <CardContent className="pt-4">
+            {isLoading ? (
+              <div className="py-16 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-2">
+                <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                <span>Loading daily running ledger...</span>
+              </div>
+            ) : !report || report.dailyRows.length === 0 ? (
+              <div className="py-12 text-center text-xs text-muted-foreground">
+                No daily meal entries found in this selected period.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Desktop & Tablet Table View */}
+                <div className="hidden lg:block overflow-x-auto rounded-xl border border-border bg-card">
+                  <table className="w-full text-xs text-left">
+                    <thead className="text-[10px] uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border">
+                      <tr>
+                        <th className="py-3 px-3 font-semibold">Date & Day</th>
+                        <th className="py-3 px-3 text-right font-semibold">Previous Bal (B/F)</th>
+                        <th className="py-3 px-3 text-center font-semibold">Lunch</th>
+                        <th className="py-3 px-3 text-center font-semibold">Dinner</th>
+                        <th className="py-3 px-3 text-center font-semibold">Total Meals</th>
+                        <th className="py-3 px-3 text-right font-semibold">Daily Meal Cost</th>
+                        <th className="py-3 px-3 text-right font-semibold">Payments Received</th>
+                        <th className="py-3 px-3 text-right font-semibold">Running Bal (C/F)</th>
+                        <th className="py-3 px-3 text-center font-semibold">Breakdown</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {report.dailyRows.map((row) => {
+                        const isExpanded = expandedDates.has(row.meal_date);
+                        const hasDeposits = (row.daily_deposit ?? 0) > 0;
+                        const prevBal = row.previous_day_balance ?? 0;
+                        const runBal = row.running_balance ?? 0;
+
+                        return (
+                          <React.Fragment key={row.meal_date}>
+                            <tr
+                              className={`hover:bg-muted/30 transition-colors ${
+                                isExpanded ? "bg-muted/20" : ""
+                              }`}
+                            >
+                              <td className="py-3 px-3 font-medium text-foreground">
+                                <div className="flex items-center gap-1.5">
+                                  <span>{formatDate(row.meal_date)}</span>
+                                  <span className="text-[11px] text-muted-foreground">({row.day_name})</span>
+                                  {row.is_friday && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[9px] border-amber-500/30 text-amber-700 dark:text-amber-400 py-0"
+                                    >
+                                      Friday
+                                    </Badge>
+                                  )}
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-3 text-right font-medium">
+                                <span
+                                  className={
+                                    prevBal >= 0
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : "text-rose-600 dark:text-rose-400"
+                                  }
+                                >
+                                  {formatBDT(prevBal)}
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-3 text-center text-muted-foreground">
+                                {row.lunch_count > 0 ? row.lunch_count : "-"}
+                              </td>
+                              <td className="py-3 px-3 text-center text-muted-foreground">
+                                {row.is_friday ? (
+                                  <span className="text-[10px] text-muted-foreground/60 italic">Closed</span>
+                                ) : row.dinner_count > 0 ? (
+                                  row.dinner_count
+                                ) : (
+                                  "-"
+                                )}
+                              </td>
+
+                              <td className="py-3 px-3 text-center font-bold text-foreground">
+                                {row.total_meals}
+                              </td>
+
+                              <td className="py-3 px-3 text-right font-bold text-primary">
+                                -{formatBDT(row.total_cost)}
+                              </td>
+
+                              <td className="py-3 px-3 text-right">
+                                {hasDeposits ? (
+                                  <span className="inline-flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                                    +{formatBDT(row.daily_deposit!)}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground/50">-</span>
+                                )}
+                              </td>
+
+                              <td className="py-3 px-3 text-right font-extrabold">
+                                <span
+                                  className={
+                                    runBal >= 0
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : "text-rose-600 dark:text-rose-400"
+                                  }
+                                >
+                                  {formatBDT(runBal)}
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-3 text-center">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => toggleDateExpanded(row.meal_date)}
+                                  className="h-7 text-[11px] gap-1 px-2"
+                                >
+                                  <span>{isExpanded ? "Hide" : "Details"}</span>
+                                  {isExpanded ? (
+                                    <ChevronUp className="h-3.5 w-3.5" />
+                                  ) : (
+                                    <ChevronDown className="h-3.5 w-3.5" />
+                                  )}
+                                </Button>
+                              </td>
+                            </tr>
+
+                            {/* Expanded Details Row */}
+                            {isExpanded && (
+                              <tr className="bg-muted/15 border-b border-border/80">
+                                <td colSpan={9} className="p-3.5">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* Member Attendance Breakdown */}
+                                    <div className="space-y-1.5 p-3 rounded-lg bg-card border border-border/60">
+                                      <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground pb-1 border-b border-border/40">
+                                        <span className="flex items-center gap-1">
+                                          <UtensilsCrossed className="h-3 w-3 text-primary" />
+                                          <span>Member Meal Attendance ({row.active_members_ate} ate)</span>
+                                        </span>
+                                        <span>Cost Added</span>
+                                      </div>
+                                      {row.member_meals && row.member_meals.length > 0 ? (
+                                        <div className="divide-y divide-border/30">
+                                          {row.member_meals.map((mm) => (
+                                            <div
+                                              key={mm.member_id}
+                                              className="flex items-center justify-between py-1 text-xs"
+                                            >
+                                              <span className="font-medium text-foreground">
+                                                {mm.member_name}
+                                              </span>
+                                              <div className="flex items-center gap-2">
+                                                <span className="text-[11px] text-muted-foreground">
+                                                  L:{mm.lunch} D:{mm.dinner} ({mm.total_meals} meals)
+                                                </span>
+                                                <span className="font-bold text-foreground">
+                                                  {formatBDT(mm.cost)}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <div className="text-xs text-muted-foreground py-1">
+                                          No individual meals recorded.
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* Payments Received on this Date */}
+                                    <div className="space-y-1.5 p-3 rounded-lg bg-card border border-border/60">
+                                      <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground pb-1 border-b border-border/40">
+                                        <span className="flex items-center gap-1">
+                                          <Wallet className="h-3 w-3 text-emerald-600" />
+                                          <span>Payments / Deposits Received on this Day</span>
+                                        </span>
+                                        <span>Amount</span>
+                                      </div>
+                                      {row.daily_deposits_list && row.daily_deposits_list.length > 0 ? (
+                                        <div className="divide-y divide-border/30">
+                                          {row.daily_deposits_list.map((dep) => (
+                                            <div
+                                              key={dep.id}
+                                              className="flex items-center justify-between py-1 text-xs"
+                                            >
+                                              <div>
+                                                <span className="font-medium text-foreground">
+                                                  {dep.member_name}
+                                                </span>
+                                                {dep.note && (
+                                                  <span className="text-[10px] text-muted-foreground ml-1.5 italic">
+                                                    ({dep.note})
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                                                +{formatBDT(dep.amount)}
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <div className="text-xs text-muted-foreground py-2 text-center">
+                                          No payments received on this date.
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile & Tablet Card View */}
+                <div className="lg:hidden space-y-3">
+                  {report.dailyRows.map((row) => {
+                    const isExpanded = expandedDates.has(row.meal_date);
+                    const prevBal = row.previous_day_balance ?? 0;
+                    const runBal = row.running_balance ?? 0;
+                    const hasDeposits = (row.daily_deposit ?? 0) > 0;
+
+                    return (
+                      <div
+                        key={row.meal_date}
+                        className="p-3.5 rounded-xl border border-border bg-card shadow-2xs space-y-3"
+                      >
+                        <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <span>{row.day_name}</span>
+                            <span className="font-bold text-foreground text-sm">
+                              {formatDate(row.meal_date)}
+                            </span>
+                            <span className="text-xs text-muted-foreground">({row.day_name})</span>
                             {row.is_friday && (
                               <Badge
                                 variant="outline"
-                                className="text-[10px] border-amber-500/30 text-amber-700 dark:text-amber-400"
+                                className="text-[9px] border-amber-500/30 text-amber-700 dark:text-amber-400 py-0"
                               >
                                 Friday
                               </Badge>
                             )}
                           </div>
+                          <span
+                            className={`font-extrabold text-sm ${
+                              runBal >= 0
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-rose-600 dark:text-rose-400"
+                            }`}
+                          >
+                            Bal: {formatBDT(runBal)}
+                          </span>
+                        </div>
+
+                        {/* Balance Progression Bar */}
+                        <div className="grid grid-cols-3 gap-1.5 p-2 rounded-lg bg-muted/40 text-xs text-center border border-border/40">
+                          <div>
+                            <span className="text-[10px] text-muted-foreground block">Prev Balance</span>
+                            <span
+                              className={`font-semibold ${
+                                prevBal >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600"
+                              }`}
+                            >
+                              {formatBDT(prevBal)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-muted-foreground block">Day Meal Cost</span>
+                            <span className="font-semibold text-primary">
+                              -{formatBDT(row.total_cost)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-muted-foreground block">Payments</span>
+                            <span
+                              className={`font-semibold ${
+                                hasDeposits
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
+                              {hasDeposits ? `+${formatBDT(row.daily_deposit!)}` : "৳0"}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Meals Stats */}
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>
+                            {row.total_meals} meals (Lunch: {row.lunch_count}, Dinner: {row.dinner_count})
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => toggleDateExpanded(row.meal_date)}
+                            className="h-6 text-[11px] gap-1 px-1.5"
+                          >
+                            <span>{isExpanded ? "Hide" : "Breakdown"}</span>
+                            {isExpanded ? (
+                              <ChevronUp className="h-3 w-3" />
+                            ) : (
+                              <ChevronDown className="h-3 w-3" />
+                            )}
+                          </Button>
+                        </div>
+
+                        {/* Mobile Expanded Details */}
+                        {isExpanded && (
+                          <div className="pt-2 border-t border-border/60 space-y-2">
+                            {/* Member Attendance */}
+                            <div className="space-y-1">
+                              <span className="text-[11px] font-semibold text-muted-foreground block">
+                                Member Attendance ({row.active_members_ate} members ate):
+                              </span>
+                              {row.member_meals?.map((mm) => (
+                                <div
+                                  key={mm.member_id}
+                                  className="flex items-center justify-between text-xs py-0.5"
+                                >
+                                  <span>{mm.member_name}</span>
+                                  <span className="text-muted-foreground">
+                                    L:{mm.lunch} D:{mm.dinner} • {formatBDT(mm.cost)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Deposits */}
+                            {hasDeposits && (
+                              <div className="pt-1.5 border-t border-border/40 space-y-1">
+                                <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 block">
+                                  Payments on this Date:
+                                </span>
+                                {row.daily_deposits_list?.map((d) => (
+                                  <div
+                                    key={d.id}
+                                    className="flex items-center justify-between text-xs text-emerald-600 dark:text-emerald-400 py-0.5"
+                                  >
+                                    <span>
+                                      {d.member_name} {d.note && `(${d.note})`}
+                                    </span>
+                                    <span className="font-bold">+{formatBDT(d.amount)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* =========================================================================
+          TAB 2: PAYMENT & DEPOSIT DETAILS (কবে payment করা হয়েছে)
+          ========================================================================= */}
+      {activeTab === "payments" && (
+        <Card className="border-border shadow-xs">
+          <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
+            <div>
+              <CardTitle className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Payment & Deposit Transaction History</span>
+              </CardTitle>
+              <CardDescription>
+                Detailed audit of who paid, on which date, amount deposited, and payment remarks.
+              </CardDescription>
+            </div>
+
+            {/* Payment Search & Count */}
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Search member or note..."
+                  value={paymentSearch}
+                  onChange={(e) => setPaymentSearch(e.target.value)}
+                  className="h-8 pl-8 text-xs w-[180px] sm:w-[220px]"
+                />
+              </div>
+              <Badge variant="outline" className="text-xs shrink-0">
+                {filteredPayments.length} Payments
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-4">
+            {isLoading ? (
+              <div className="py-16 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-2">
+                <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                <span>Loading payment records...</span>
+              </div>
+            ) : filteredPayments.length === 0 ? (
+              <div className="py-12 text-center text-xs text-muted-foreground">
+                No payment transactions found matching the filter or date range.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-border bg-card">
+                <table className="w-full text-xs text-left">
+                  <thead className="text-[10px] uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border">
+                    <tr>
+                      <th className="py-3 px-3.5 font-semibold">Payment Date</th>
+                      <th className="py-3 px-3.5 font-semibold">Member</th>
+                      <th className="py-3 px-3.5 font-semibold">Payment Note / Method</th>
+                      <th className="py-3 px-3.5 text-right font-semibold">Amount (BDT)</th>
+                      <th className="py-3 px-3.5 text-right font-semibold">Recorded Time</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {filteredPayments.map((p) => (
+                      <tr key={p.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="py-3 px-3.5 font-medium text-foreground">
+                          <div className="flex items-center gap-1.5">
+                            <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            <span>{formatDate(p.deposit_date)}</span>
+                          </div>
                         </td>
-                        <td className="py-3 px-4 text-center font-medium">{row.lunch_count}</td>
-                        <td className="py-3 px-4 text-center font-medium">{row.dinner_count}</td>
-                        <td className="py-3 px-4 text-center font-bold text-foreground">
-                          {row.total_meals}
+
+                        <td className="py-3 px-3.5 font-semibold text-foreground">
+                          <div className="flex items-center gap-1.5">
+                            <span className="h-6 w-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">
+                              {p.member_name.slice(0, 2).toUpperCase()}
+                            </span>
+                            <span>{p.member_name}</span>
+                          </div>
                         </td>
-                        <td className="py-3 px-4 text-right font-bold text-primary">
-                          {formatBDT(row.total_cost)}
+
+                        <td className="py-3 px-3.5 text-muted-foreground">
+                          {p.note || "Regular Mess Deposit"}
                         </td>
-                        <td className="py-3 px-4 text-right text-muted-foreground">
-                          {row.active_members_ate} members
+
+                        <td className="py-3 px-3.5 text-right font-extrabold text-emerald-600 dark:text-emerald-400 text-sm">
+                          +{formatBDT(p.amount)}
+                        </td>
+
+                        <td className="py-3 px-3.5 text-right text-muted-foreground text-[11px]">
+                          {p.created_at ? formatFullDate(p.created_at) : "N/A"}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
-              {/* Mobile Card View */}
-              <div className="md:hidden space-y-2.5">
-                {report.dailyRows.map((row) => (
-                  <div
-                    key={row.meal_date}
-                    className="p-3.5 rounded-xl border border-border bg-card shadow-2xs space-y-2.5"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-foreground text-sm">
-                          {formatDate(row.meal_date)}
-                        </span>
-                        <span className="text-xs text-muted-foreground">({row.day_name})</span>
-                        {row.is_friday && (
-                          <Badge
-                            variant="outline"
-                            className="text-[9px] border-amber-500/30 text-amber-700 dark:text-amber-400"
-                          >
-                            Friday
-                          </Badge>
-                        )}
-                      </div>
-                      <span className="font-bold text-primary text-sm">
-                        {formatBDT(row.total_cost)}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-1.5 p-2 rounded-lg bg-muted/40 text-xs text-center border border-border/40">
-                      <div>
-                        <span className="text-[10px] text-muted-foreground block">Lunch</span>
-                        <span className="font-semibold text-foreground">{row.lunch_count}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-muted-foreground block">Dinner</span>
-                        <span className="font-semibold text-foreground">{row.dinner_count}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-muted-foreground block">Total Meals</span>
-                        <span className="font-bold text-primary">{row.total_meals}</span>
-                      </div>
-                    </div>
-
-                    <div className="text-[11px] text-muted-foreground text-right">
-                      {row.active_members_ate} members recorded
-                    </div>
-                  </div>
-                ))}
+      {/* =========================================================================
+          TAB 3: MEMBER BALANCE RECONCILIATION SUMMARY
+          ========================================================================= */}
+      {activeTab === "members" && (
+        <Card className="border-border shadow-xs">
+          <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-border/60">
+            <div>
+              <CardTitle className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <Receipt className="h-4 w-4 text-primary" />
+                <span>Member Account Balance Reconciliation</span>
+              </CardTitle>
+              <CardDescription>
+                Full period breakdown: Previous Balance (B/F) + Deposits - Meal Cost = Closing Net Balance.
+              </CardDescription>
+            </div>
+            {report?.memberStatements && (
+              <Badge variant="outline" className="text-xs self-start sm:self-auto">
+                {report.memberStatements.length} Active Members
+              </Badge>
+            )}
+          </CardHeader>
+          <CardContent className="pt-4">
+            {isLoading ? (
+              <div className="py-16 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-2">
+                <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                <span>Loading member statements...</span>
               </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+            ) : !report?.memberStatements || report.memberStatements.length === 0 ? (
+              <div className="py-12 text-center text-xs text-muted-foreground">
+                No member records found.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-border bg-card">
+                <table className="w-full text-xs text-left">
+                  <thead className="text-[10px] uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border">
+                    <tr>
+                      <th className="py-3 px-3.5 font-semibold">Member</th>
+                      <th className="py-3 px-3.5 text-right font-semibold">Previous Bal (B/F)</th>
+                      <th className="py-3 px-3.5 text-center font-semibold">Period Meals</th>
+                      <th className="py-3 px-3.5 text-right font-semibold">Meal Expense</th>
+                      <th className="py-3 px-3.5 text-right font-semibold">Period Paid</th>
+                      <th className="py-3 px-3.5 text-right font-semibold">Period Net</th>
+                      <th className="py-3 px-3.5 text-right font-semibold">Closing Balance</th>
+                      <th className="py-3 px-3.5 text-center font-semibold">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {report.memberStatements.map((ms) => {
+                      const isClosingPositive = ms.closing_balance >= 0;
+                      const isPrevPositive = ms.previous_balance >= 0;
+
+                      return (
+                        <tr key={ms.member_id} className="hover:bg-muted/30 transition-colors">
+                          <td className="py-3 px-3.5 font-bold text-foreground">
+                            <div className="flex items-center gap-2">
+                              <span className="h-6 w-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">
+                                {ms.member_name.slice(0, 2).toUpperCase()}
+                              </span>
+                              <span>{ms.member_name}</span>
+                            </div>
+                          </td>
+
+                          <td className="py-3 px-3.5 text-right font-medium">
+                            <span
+                              className={
+                                isPrevPositive
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-rose-600 dark:text-rose-400"
+                              }
+                            >
+                              {formatBDT(ms.previous_balance)}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3.5 text-center">
+                            <span className="font-semibold text-foreground">{ms.period_meals}</span>
+                            <span className="text-[10px] text-muted-foreground block">
+                              (L:{ms.period_lunch} D:{ms.period_dinner})
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3.5 text-right font-semibold text-foreground">
+                            {formatBDT(ms.period_cost)}
+                          </td>
+
+                          <td className="py-3 px-3.5 text-right font-bold text-emerald-600 dark:text-emerald-400">
+                            +{formatBDT(ms.period_deposit)}
+                          </td>
+
+                          <td className="py-3 px-3.5 text-right font-medium">
+                            <span
+                              className={
+                                ms.period_net >= 0
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-rose-600 dark:text-rose-400"
+                              }
+                            >
+                              {ms.period_net >= 0 ? "+" : ""}
+                              {formatBDT(ms.period_net)}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3.5 text-right font-extrabold text-sm">
+                            <span
+                              className={
+                                isClosingPositive
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-rose-600 dark:text-rose-400"
+                              }
+                            >
+                              {formatBDT(ms.closing_balance)}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3.5 text-center">
+                            <Badge
+                              variant={isClosingPositive ? "success" : "destructive"}
+                              className="text-[10px] px-2 py-0.5"
+                            >
+                              {isClosingPositive ? "Advance / জমা" : "Due / বকেয়া"}
+                            </Badge>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

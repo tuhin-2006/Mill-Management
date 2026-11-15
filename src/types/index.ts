@@ -110,6 +110,33 @@ export interface DailyMealEntryState {
   unit_price: number;
 }
 
+export interface DailyMemberMealDetail {
+  member_id: string;
+  member_name: string;
+  lunch: number;
+  dinner: number;
+  total_meals: number;
+  cost: number;
+}
+
+export interface DailyDepositDetail {
+  id: string;
+  member_id: string;
+  member_name: string;
+  amount: number;
+  note?: string;
+}
+
+export interface PeriodPaymentRecord {
+  id: string;
+  deposit_date: string;
+  member_id: string;
+  member_name: string;
+  amount: number;
+  note?: string;
+  created_at?: string;
+}
+
 export interface DailyLedgerRow {
   meal_date: string;
   day_name: string;
@@ -119,6 +146,11 @@ export interface DailyLedgerRow {
   total_meals: number;
   total_cost: number;
   active_members_ate: number;
+  daily_deposit?: number;
+  daily_deposits_list?: DailyDepositDetail[];
+  member_meals?: DailyMemberMealDetail[];
+  running_balance?: number;
+  previous_day_balance?: number;
 }
 
 export interface PeriodMemberStatement {
@@ -174,6 +206,7 @@ export interface PeriodLedgerReport {
   };
   dailyRows: DailyLedgerRow[];
   memberStatements: PeriodMemberStatement[];
+  paymentTransactions?: PeriodPaymentRecord[];
 }
 
 export type EmailDeliveryStatus = "sent" | "failed" | "skipped_duplicate";
@@ -230,6 +263,7 @@ export interface MemberPersonalStatement {
     total_dinner: number;
     total_meal_cost: number;
     total_deposited: number;
+    period_deposited?: number;
     balance: number;
   };
   dailyMeals: Array<{

@@ -10,6 +10,10 @@ import {
   Mail,
   Clock,
   CheckCircle2,
+  Eye,
+  EyeOff,
+  UserCheck,
+  ShieldCheck,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { getSettings, updateSettings } from "@/lib/services";
@@ -26,37 +30,58 @@ export default function SettingsPage() {
   const [fridayMealPrice, setFridayMealPrice] = React.useState("120");
   const [currency, setCurrency] = React.useState("BDT");
   const [timezone, setTimezone] = React.useState("Asia/Dhaka");
-  const [groupLedgerViewerEmail, setGroupLedgerViewerEmail] = React.useState("");
   const [autoEmailEnabled, setAutoEmailEnabled] = React.useState(false);
+  const [weeklyReportDay, setWeeklyReportDay] = React.useState("Friday");
+  const [weeklyReportTime, setWeeklyReportTime] = React.useState("20:00");
   const [isSavingSettings, setIsSavingSettings] = React.useState(false);
 
-  // Password change state
-  const [newPassword, setNewPassword] = React.useState("");
-  const [confirmPassword, setConfirmPassword] = React.useState("");
-  const [isChangingPassword, setIsChangingPassword] = React.useState(false);
+  // Viewer credentials state
+  const [viewerEmail, setViewerEmail] = React.useState("");
+  const [viewerPassword, setViewerPassword] = React.useState("");
+  const [showViewerPassword, setShowViewerPassword] = React.useState(false);
+  const [isUpdatingViewer, setIsUpdatingViewer] = React.useState(false);
 
-  // Load existing settings
+  // Admin credentials state
+  const [adminEmail, setAdminEmail] = React.useState("");
+  const [adminNewPassword, setAdminNewPassword] = React.useState("");
+  const [adminConfirmPassword, setAdminConfirmPassword] = React.useState("");
+  const [showAdminPassword, setShowAdminPassword] = React.useState(false);
+  const [isUpdatingAdmin, setIsUpdatingAdmin] = React.useState(false);
+  const [adminUserId, setAdminUserId] = React.useState<string | null>(null);
+
+  // Load existing settings and accounts
   React.useEffect(() => {
-    async function loadSettings() {
+    async function loadData() {
       try {
         const supabase = createClient();
-        const data = await getSettings(supabase);
-        setAppName(data.app_name);
-        setMealPrice(String(data.meal_price));
-        setFridayMealPrice(String(data.friday_meal_price ?? 120));
-        setCurrency(data.currency);
-        setTimezone(data.timezone);
-        setGroupLedgerViewerEmail(data.group_ledger_viewer_email || "");
-        setAutoEmailEnabled(Boolean(data.auto_email_enabled));
+        const [settingsData, authRes] = await Promise.all([
+          getSettings(supabase),
+          supabase.auth.getUser(),
+        ]);
+
+        setAppName(settingsData.app_name);
+        setMealPrice(String(settingsData.meal_price));
+        setFridayMealPrice(String(settingsData.friday_meal_price ?? 120));
+        setCurrency(settingsData.currency);
+        setTimezone(settingsData.timezone);
+        setViewerEmail(settingsData.group_ledger_viewer_email || "viewer@mill.local");
+        setAutoEmailEnabled(Boolean(settingsData.auto_email_enabled));
+        setWeeklyReportDay(settingsData.weekly_report_day || "Friday");
+        setWeeklyReportTime(settingsData.weekly_report_time || "20:00");
+
+        if (authRes.data.user) {
+          setAdminUserId(authRes.data.user.id);
+          setAdminEmail(authRes.data.user.email || "");
+        }
       } catch (err: unknown) {
         toast.error("Failed to load settings: " + (err instanceof Error ? err.message : ""));
       }
     }
 
-    loadSettings();
+    void loadData();
   }, []);
 
-  // Save Settings
+  // Save General Configuration & Email Schedule
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     const priceNum = parseFloat(mealPrice);
@@ -79,11 +104,13 @@ export default function SettingsPage() {
         friday_meal_price: fridayPriceNum,
         currency: currency.trim() || "BDT",
         timezone: timezone.trim() || "Asia/Dhaka",
-        group_ledger_viewer_email: groupLedgerViewerEmail.trim() || null,
+        group_ledger_viewer_email: viewerEmail.trim() || null,
         auto_email_enabled: autoEmailEnabled,
+        weekly_report_day: weeklyReportDay,
+        weekly_report_time: weeklyReportTime,
       });
 
-      toast.success("Settings updated successfully!");
+      toast.success("System configuration & email schedule saved successfully!");
     } catch (err: unknown) {
       toast.error("Failed to save settings: " + (err instanceof Error ? err.message : ""));
     } finally {
@@ -91,36 +118,85 @@ export default function SettingsPage() {
     }
   };
 
-  // Change Admin Password
-  const handleChangePassword = async (e: React.FormEvent) => {
+  // Update Group Ledger Viewer Credentials
+  const handleUpdateViewerCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPassword || newPassword.length < 6) {
+    if (!viewerEmail.trim()) {
+      toast.error("Viewer username / email cannot be empty.");
+      return;
+    }
+    if (viewerPassword && viewerPassword.length < 6) {
+      toast.error("Viewer password must be at least 6 characters long.");
+      return;
+    }
+
+    try {
+      setIsUpdatingViewer(true);
+      const res = await fetch("/api/admin/provision-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: viewerEmail.trim(),
+          password: viewerPassword || undefined,
+          role: "group_ledger_viewer",
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to update viewer credentials.");
+      }
+
+      // Also persist to settings.group_ledger_viewer_email
+      const supabase = createClient();
+      await updateSettings(supabase, { group_ledger_viewer_email: viewerEmail.trim() });
+
+      toast.success("Group Ledger Viewer credentials updated successfully!");
+      setViewerPassword("");
+    } catch (err: unknown) {
+      toast.error("Failed to update viewer: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setIsUpdatingViewer(false);
+    }
+  };
+
+  // Update Admin Account & Password
+  const handleUpdateAdminCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (adminNewPassword && adminNewPassword.length < 6) {
       toast.error("New password must be at least 6 characters long.");
       return;
     }
-    if (newPassword !== confirmPassword) {
+    if (adminNewPassword && adminNewPassword !== adminConfirmPassword) {
       toast.error("Passwords do not match.");
       return;
     }
 
     try {
-      setIsChangingPassword(true);
-      const supabase = createClient();
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword,
+      setIsUpdatingAdmin(true);
+      const res = await fetch("/api/admin/provision-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetUserId: adminUserId || undefined,
+          email: adminEmail.trim(),
+          password: adminNewPassword || undefined,
+          role: "admin",
+        }),
       });
 
-      if (error) {
-        throw new Error(error.message);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to update administrator account.");
       }
 
-      toast.success("Admin password changed successfully!");
-      setNewPassword("");
-      setConfirmPassword("");
+      toast.success("Administrator account credentials updated successfully!");
+      setAdminNewPassword("");
+      setAdminConfirmPassword("");
     } catch (err: unknown) {
-      toast.error("Password change failed: " + (err instanceof Error ? err.message : ""));
+      toast.error("Account update failed: " + (err instanceof Error ? err.message : ""));
     } finally {
-      setIsChangingPassword(false);
+      setIsUpdatingAdmin(false);
     }
   };
 
@@ -128,7 +204,7 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Settings & System Configuration"
-        description="Configure meal rate, group parameters, and administrator security."
+        description="Configure meal rates, email reporting schedule, and user authentication credentials."
       />
 
       {/* Historical Integrity Info Note */}
@@ -148,15 +224,17 @@ export default function SettingsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* App & Meal Price Settings */}
+        {/* =========================================================================
+            CARD 1: APP & MEAL CONFIGURATION + AUTOMATED SCHEDULE
+            ========================================================================= */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <DollarSign className="h-4 w-4 text-primary" />
-              <span>Meal & General Configuration</span>
+              <span>Meal Rates & Automated Email Schedule</span>
             </CardTitle>
             <CardDescription>
-              Default rate applied to new daily meal attendance entries
+              Default rate applied to meal entries and scheduled report timing
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -173,7 +251,7 @@ export default function SettingsPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="meal-price">Regular Meal Price (শনি–বৃহস্পতি) (৳ BDT)</Label>
+                  <Label htmlFor="meal-price">Regular Meal Price (শনি–বৃহস্পতি) (৳)</Label>
                   <Input
                     id="meal-price"
                     type="number"
@@ -189,7 +267,7 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="friday-meal-price">Friday Meal Price (শুক্রবার দুপুর) (৳ BDT)</Label>
+                  <Label htmlFor="friday-meal-price">Friday Meal Price (শুক্রবার দুপুর) (৳)</Label>
                   <Input
                     id="friday-meal-price"
                     type="number"
@@ -200,7 +278,7 @@ export default function SettingsPage() {
                     required
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Default: ৳120.00 BDT (Special Friday Lunch)
+                    Default: ৳120.00 BDT (Friday Lunch)
                   </p>
                 </div>
               </div>
@@ -226,33 +304,16 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <div className="space-y-1.5 pt-2 border-t border-border/60">
-                <Label htmlFor="group-viewer-email" className="flex items-center gap-1.5">
-                  <Mail className="h-3.5 w-3.5 text-primary" />
-                  <span>Group Ledger Viewer Recipient Email</span>
-                </Label>
-                <Input
-                  id="group-viewer-email"
-                  type="email"
-                  placeholder="e.g. viewer@gmail.com"
-                  value={groupLedgerViewerEmail}
-                  onChange={(e) => setGroupLedgerViewerEmail(e.target.value)}
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Receives aggregate-only weekly summaries (Total meals, expenses, deposits, treasury balance). Strictly excludes individual member names and private account balances.
-                </p>
-              </div>
-
-              {/* Automatic Weekly Email Reporting Toggle */}
-              <div className="p-3.5 rounded-xl border border-border bg-card/60 space-y-2.5">
+              {/* Automatic Email Schedule Section */}
+              <div className="p-3.5 rounded-xl border border-border bg-card/60 space-y-3 pt-3">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label className="text-sm font-semibold text-foreground flex items-center gap-1.5">
                       <Clock className="h-4 w-4 text-primary" />
-                      <span>Automatic Friday Email Reports (স্বয়ংক্রিয় সাপ্তাহিক ইমেইল)</span>
+                      <span>Automatic Email Reports (স্বয়ংক্রিয় সাপ্তাহিক ইমেইল)</span>
                     </Label>
                     <p className="text-[11px] text-muted-foreground">
-                      Sends separate weekly HTML statements every Friday at 8:00 PM (Asia/Dhaka).
+                      Dispatches weekly HTML statements via Google Apps Script.
                     </p>
                   </div>
 
@@ -273,6 +334,42 @@ export default function SettingsPage() {
                   </button>
                 </div>
 
+                {/* Day of Week & Time Selectors */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div className="space-y-1">
+                    <Label htmlFor="report-day" className="text-xs font-semibold text-muted-foreground">
+                      Dispatch Day (পাঠানোর দিন)
+                    </Label>
+                    <select
+                      id="report-day"
+                      value={weeklyReportDay}
+                      onChange={(e) => setWeeklyReportDay(e.target.value)}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      <option value="Friday">Friday (শুক্রবার - Default)</option>
+                      <option value="Thursday">Thursday (বৃহস্পতিবার)</option>
+                      <option value="Saturday">Saturday (শনিবার)</option>
+                      <option value="Sunday">Sunday (রবিবার)</option>
+                      <option value="Monday">Monday (সোমবার)</option>
+                      <option value="Tuesday">Tuesday (মঙ্গলবার)</option>
+                      <option value="Wednesday">Wednesday (বুধবার)</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="report-time" className="text-xs font-semibold text-muted-foreground">
+                      Dispatch Time (সময়)
+                    </Label>
+                    <Input
+                      id="report-time"
+                      type="time"
+                      value={weeklyReportTime}
+                      onChange={(e) => setWeeklyReportTime(e.target.value)}
+                      className="h-9 text-xs"
+                    />
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-2 pt-1">
                   <span
                     className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
@@ -288,20 +385,11 @@ export default function SettingsPage() {
                     />
                     <span>
                       {autoEmailEnabled
-                        ? "ACTIVE (স্বয়ংক্রিয় পাঠানো চালু)"
-                        : "PAUSED (নিরাপদ লক সক্রিয় - পাঠানো হবে না)"}
+                        ? `ACTIVE — Will dispatch every ${weeklyReportDay} at ${weeklyReportTime}`
+                        : "PAUSED — Safety lock active (No emails sent automatically)"}
                     </span>
                   </span>
                 </div>
-              </div>
-
-              <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
-                <span className="font-semibold text-foreground">
-                  Friday Meal Rule:
-                </span>
-                <p>
-                  Friday Dinner is permanently disabled by system rule (Lunch only on Fridays). Friday Lunch rate is ৳{fridayMealPrice || 120}.00 BDT.
-                </p>
               </div>
 
               <div className="flex justify-end pt-2">
@@ -314,50 +402,67 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Admin Security & Password Change */}
+        {/* =========================================================================
+            CARD 2: TOTAL MILL LEDGER VIEWER CREDENTIALS
+            ========================================================================= */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <KeyRound className="h-4 w-4 text-primary" />
-              <span>Admin Security Credentials</span>
+              <ShieldCheck className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              <span>Total Mill Ledger Viewer Credentials</span>
             </CardTitle>
             <CardDescription>
-              Update your administrator login password through Supabase Auth
+              Manage login email and password for the Aggregate Group Ledger Viewer role
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleChangePassword} className="space-y-4">
+            <form onSubmit={handleUpdateViewerCredentials} className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="new-password">New Password</Label>
+                <Label htmlFor="viewer-email">Viewer Username / Email</Label>
                 <Input
-                  id="new-password"
-                  type="password"
-                  placeholder="At least 6 characters"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
+                  id="viewer-email"
+                  type="email"
+                  placeholder="e.g. viewer@mill.local"
+                  value={viewerEmail}
+                  onChange={(e) => setViewerEmail(e.target.value)}
                   required
                 />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="confirm-password">Confirm New Password</Label>
-                <Input
-                  id="confirm-password"
-                  type="password"
-                  placeholder="Re-enter new password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
-                <p className="flex items-center gap-1.5 font-medium text-foreground">
-                  <ShieldAlert className="h-4 w-4 text-amber-500" />
-                  Security Notice
+                <p className="text-[11px] text-muted-foreground">
+                  The login email used by the external auditor / mess viewer.
                 </p>
-                <p className="mt-1 text-[11px]">
-                  Only you have administrative access. Make sure to keep your password in a safe password manager.
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="viewer-password">Viewer Password</Label>
+                  <button
+                    type="button"
+                    onClick={() => setShowViewerPassword(!showViewerPassword)}
+                    className="text-[11px] text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    {showViewerPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                    <span>{showViewerPassword ? "Hide" : "Show"}</span>
+                  </button>
+                </div>
+                <Input
+                  id="viewer-password"
+                  type={showViewerPassword ? "text" : "password"}
+                  placeholder="Enter new password (min 6 chars)"
+                  value={viewerPassword}
+                  onChange={(e) => setViewerPassword(e.target.value)}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Leave blank if you only want to update the email address.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 text-xs text-blue-800 dark:text-blue-300 space-y-1">
+                <p className="font-semibold flex items-center gap-1">
+                  <ShieldCheck className="h-3.5 w-3.5 text-blue-600" />
+                  Aggregate Viewer Privacy Guarantee:
+                </p>
+                <p className="text-[11px] leading-relaxed">
+                  The user logging in with this account will strictly see group totals (Total daily meals, group expenses, treasury balance). Individual member names and personal balances are cryptographically inaccessible.
                 </p>
               </div>
 
@@ -365,75 +470,106 @@ export default function SettingsPage() {
                 <Button
                   type="submit"
                   variant="primary"
-                  isLoading={isChangingPassword}
+                  isLoading={isUpdatingViewer}
                   className="gap-2 w-full sm:w-auto h-10 sm:h-9"
                 >
+                  <UserCheck className="h-4 w-4" />
+                  <span>Update Viewer Credentials</span>
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* =========================================================================
+            CARD 3: ADMIN SECURITY CREDENTIALS
+            ========================================================================= */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-primary" />
+              <span>Administrator Account & Credentials</span>
+            </CardTitle>
+            <CardDescription>
+              Update your primary administrator login email and password
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleUpdateAdminCredentials} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="admin-email">Admin Email Address</Label>
+                  <Input
+                    id="admin-email"
+                    type="email"
+                    value={adminEmail}
+                    onChange={(e) => setAdminEmail(e.target.value)}
+                    required
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Your login identifier for administrator access.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="admin-new-password">New Admin Password</Label>
+                    <button
+                      type="button"
+                      onClick={() => setShowAdminPassword(!showAdminPassword)}
+                      className="text-[11px] text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      {showAdminPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                      <span>{showAdminPassword ? "Hide" : "Show"}</span>
+                    </button>
+                  </div>
+                  <Input
+                    id="admin-new-password"
+                    type={showAdminPassword ? "text" : "password"}
+                    placeholder="Enter new password"
+                    value={adminNewPassword}
+                    onChange={(e) => setAdminNewPassword(e.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    At least 6 characters. Leave blank to keep current password.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="admin-confirm-password">Confirm New Password</Label>
+                  <Input
+                    id="admin-confirm-password"
+                    type={showAdminPassword ? "text" : "password"}
+                    placeholder="Re-enter password"
+                    value={adminConfirmPassword}
+                    onChange={(e) => setAdminConfirmPassword(e.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Must match new password.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <ShieldAlert className="h-4 w-4 text-amber-500 shrink-0" />
+                  <span>Changes take effect immediately on your Supabase Auth user record.</span>
+                </div>
+
+                <Button
+                  type="submit"
+                  variant="primary"
+                  isLoading={isUpdatingAdmin}
+                  className="gap-2 h-10 sm:h-9"
+                >
                   <KeyRound className="h-4 w-4" />
-                  <span>Update Password</span>
+                  <span>Update Admin Credentials</span>
                 </Button>
               </div>
             </form>
           </CardContent>
         </Card>
       </div>
-
-      {/* Weekly Email Reporting Information Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Mail className="h-4 w-4 text-primary" />
-            <span>Weekly Gmail Reporting Engine</span>
-          </CardTitle>
-          <CardDescription>
-            Free automated weekly meal statements powered by Google Apps Script and Supabase
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="p-3 rounded-lg border border-border bg-muted/20">
-              <span className="text-xs text-muted-foreground block">Email Service</span>
-              <span className="font-semibold text-foreground text-sm flex items-center gap-1.5 mt-0.5">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                Google Apps Script (MailApp)
-              </span>
-              <span className="text-[11px] text-muted-foreground block mt-1">
-                Cost: ৳0.00 / Zero-cost free Gmail
-              </span>
-            </div>
-
-            <div className="p-3 rounded-lg border border-border bg-muted/20">
-              <span className="text-xs text-muted-foreground block">Weekly Dispatch Schedule</span>
-              <span className="font-semibold text-foreground text-sm flex items-center gap-1.5 mt-0.5">
-                <Clock className="h-4 w-4 text-primary" />
-                Every Friday Evening
-              </span>
-              <span className="text-[11px] text-muted-foreground block mt-1">
-                Timezone: Asia/Dhaka (8:00 PM)
-              </span>
-            </div>
-
-            <div className="p-3 rounded-lg border border-border bg-muted/20">
-              <span className="text-xs text-muted-foreground block">Automatic Schedule State</span>
-              <span className="font-semibold text-amber-600 dark:text-amber-400 text-sm flex items-center gap-1.5 mt-0.5">
-                <ShieldAlert className="h-4 w-4" />
-                Safety Lock Active
-              </span>
-              <span className="text-[11px] text-muted-foreground block mt-1">
-                Awaiting your approval before auto-sending
-              </span>
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-border/80 bg-muted/30 p-3 text-xs text-muted-foreground space-y-1.5">
-            <p className="font-medium text-foreground">
-              Setup Instructions & Secret Keys:
-            </p>
-            <p className="leading-relaxed">
-              Google Apps Script connects to Supabase Edge Function via a private shared secret (<code className="px-1 py-0.5 rounded bg-muted font-mono text-[11px]">REPORT_SHARED_SECRET</code>) stored securely in Google Apps Script Script Properties. No sensitive database keys are ever exposed in frontend client code.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

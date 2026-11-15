@@ -32,7 +32,7 @@ import {
   getGroupSummary,
   getMemberLedger,
 } from "@/lib/services";
-import { formatBDT } from "@/lib/date";
+import { formatBDT, formatDate, getPresetDateRange, DatePreset } from "@/lib/date";
 import { Member, MemberSummary, UserRole } from "@/types";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -125,6 +125,13 @@ export default function MembersPage() {
     };
   } | null>(null);
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false);
+
+  // On-demand statement dispatch state
+  const [sendStatementMember, setSendStatementMember] = React.useState<Member | null>(null);
+  const [statementPreset, setStatementPreset] = React.useState<DatePreset | "custom">("this_month");
+  const [statementStartDate, setStatementStartDate] = React.useState("");
+  const [statementEndDate, setStatementEndDate] = React.useState("");
+  const [isSendingStatement, setIsSendingStatement] = React.useState(false);
 
   // Fetch members and their financial statistics
   const loadData = React.useCallback(async () => {
@@ -355,6 +362,54 @@ export default function MembersPage() {
       toast.error("Failed to delete member: " + (err instanceof Error ? err.message : ""));
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  // Send On-Demand Statement Email
+  const handleStatementPreset = (preset: DatePreset) => {
+    setStatementPreset(preset);
+    if (preset === "all") {
+      setStatementStartDate("");
+      setStatementEndDate("");
+    } else {
+      const r = getPresetDateRange(preset);
+      setStatementStartDate(r.startDate);
+      setStatementEndDate(r.endDate);
+    }
+  };
+
+  const handleSendStatement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sendStatementMember) return;
+    if (!sendStatementMember.email?.trim()) {
+      toast.error(`Member "${sendStatementMember.name}" does not have an email address configured. Edit the member to add an email first.`);
+      return;
+    }
+
+    try {
+      setIsSendingStatement(true);
+      const res = await fetch("/api/admin/dispatch-reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "single_member_statement",
+          memberId: sendStatementMember.id,
+          startDate: statementStartDate || undefined,
+          endDate: statementEndDate || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to dispatch statement email");
+      }
+
+      toast.success(`Statement email dispatched to ${sendStatementMember.name} (${sendStatementMember.email})!`);
+      setSendStatementMember(null);
+    } catch (err: unknown) {
+      toast.error("Failed to send statement email: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setIsSendingStatement(false);
     }
   };
 
@@ -767,6 +822,20 @@ export default function MembersPage() {
                                 <Eye className="h-3.5 w-3.5" />
                               </Button>
 
+                              {/* Send On-Demand Statement Email */}
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => {
+                                  setSendStatementMember(member);
+                                  handleStatementPreset("this_month");
+                                }}
+                                className="h-8 w-8 text-blue-600 hover:bg-blue-500/10 transition-colors border-border/80"
+                                title="Send On-Demand Statement Email (হিসাবের ইমেইল পাঠান)"
+                              >
+                                <Mail className="h-3.5 w-3.5" />
+                              </Button>
+
                               {/* Provision Credentials */}
                               <Button
                                 variant="outline"
@@ -926,6 +995,19 @@ export default function MembersPage() {
                           >
                             <Eye className="h-3.5 w-3.5 mr-1" />
                             <span>Ledger</span>
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => {
+                              setSendStatementMember(member);
+                              handleStatementPreset("this_month");
+                            }}
+                            className="h-8 w-8 text-blue-600 border-border/80"
+                            title="Send Statement Email"
+                          >
+                            <Mail className="h-3.5 w-3.5" />
                           </Button>
 
                           <Button
@@ -1295,6 +1377,163 @@ export default function MembersPage() {
         data={detailData}
         isLoading={isLoadingDetail}
       />
+
+      {/* Modal: Send On-Demand Statement Email */}
+      {sendStatementMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-card w-full max-w-md rounded-2xl border border-border shadow-2xl p-5 sm:p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-blue-500/10 text-blue-600">
+                  <Mail className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-foreground">
+                    Send Statement Email
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Dispatch personal mess calculation to {sendStatementMember.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSendStatementMember(null)}
+                className="text-muted-foreground hover:text-foreground p-1 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSendStatement} className="space-y-4">
+              <div className="p-3 rounded-lg bg-muted/40 border border-border text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Recipient Member:</span>
+                  <span className="font-semibold text-foreground">{sendStatementMember.name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Email Address:</span>
+                  <span className="font-mono text-primary">
+                    {sendStatementMember.email || "No email set"}
+                  </span>
+                </div>
+              </div>
+
+              {!sendStatementMember.email && (
+                <div className="p-2.5 rounded-lg bg-destructive/10 border border-destructive/20 text-xs text-destructive">
+                  ⚠️ This member does not have an email address configured. Please edit the member to set an email first.
+                </div>
+              )}
+
+              {/* Period Presets */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-muted-foreground">
+                  Select Statement Period (হিসাবের সময়কাল)
+                </Label>
+                <div className="flex flex-wrap gap-1.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => handleStatementPreset("this_week")}
+                    className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                      statementPreset === "this_week"
+                        ? "bg-primary text-primary-foreground shadow-2xs"
+                        : "bg-muted text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    This Week
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleStatementPreset("this_month")}
+                    className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                      statementPreset === "this_month"
+                        ? "bg-primary text-primary-foreground shadow-2xs"
+                        : "bg-muted text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    This Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleStatementPreset("last_month")}
+                    className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                      statementPreset === "last_month"
+                        ? "bg-primary text-primary-foreground shadow-2xs"
+                        : "bg-muted text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Last Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleStatementPreset("all")}
+                    className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                      statementPreset === "all"
+                        ? "bg-primary text-primary-foreground shadow-2xs"
+                        : "bg-muted text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    All Time
+                  </button>
+                </div>
+              </div>
+
+              {/* Date Inputs */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="stmt-start" className="text-[11px] text-muted-foreground">From Date</Label>
+                  <Input
+                    id="stmt-start"
+                    type="date"
+                    value={statementStartDate}
+                    onChange={(e) => {
+                      setStatementPreset("custom");
+                      setStatementStartDate(e.target.value);
+                    }}
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="stmt-end" className="text-[11px] text-muted-foreground">To Date</Label>
+                  <Input
+                    id="stmt-end"
+                    type="date"
+                    value={statementEndDate}
+                    onChange={(e) => {
+                      setStatementPreset("custom");
+                      setStatementEndDate(e.target.value);
+                    }}
+                    className="h-8 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSendStatementMember(null)}
+                  className="h-9 text-xs"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={!sendStatementMember.email}
+                  isLoading={isSendingStatement}
+                  className="h-9 text-xs gap-1.5"
+                >
+                  <Mail className="h-4 w-4" />
+                  <span>Dispatch Email Now</span>
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

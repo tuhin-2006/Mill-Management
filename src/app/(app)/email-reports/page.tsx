@@ -27,7 +27,8 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { formatDate } from "@/lib/date";
+import { Label } from "@/components/ui/label";
+import { formatDate, getPresetDateRange, DatePreset } from "@/lib/date";
 import { Member, Settings, EmailLog } from "@/types";
 import { toast } from "sonner";
 
@@ -45,6 +46,71 @@ export default function EmailReportsPage() {
   const [isDispatching, setIsDispatching] = React.useState(false);
   const [isTesting, setIsTesting] = React.useState(false);
   const [showConfirmDispatch, setShowConfirmDispatch] = React.useState(false);
+
+  // On-demand single member statement dispatch state
+  const [selectedMemberId, setSelectedMemberId] = React.useState<string>("");
+  const [singlePreset, setSinglePreset] = React.useState<DatePreset | "custom">("this_month");
+  const [singleStartDate, setSingleStartDate] = React.useState("");
+  const [singleEndDate, setSingleEndDate] = React.useState("");
+  const [isSendingSingle, setIsSendingSingle] = React.useState(false);
+
+  // Initialize dates
+  React.useEffect(() => {
+    const r = getPresetDateRange("this_month");
+    setSingleStartDate(r.startDate);
+    setSingleEndDate(r.endDate);
+  }, []);
+
+  const handleSinglePreset = (preset: DatePreset) => {
+    setSinglePreset(preset);
+    if (preset === "all") {
+      setSingleStartDate("");
+      setSingleEndDate("");
+    } else {
+      const r = getPresetDateRange(preset);
+      setSingleStartDate(r.startDate);
+      setSingleEndDate(r.endDate);
+    }
+  };
+
+  const handleSendSingleStatement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedMemberId) {
+      toast.error("Please select a member.");
+      return;
+    }
+    const targetM = members.find((m) => m.id === selectedMemberId);
+    if (!targetM?.email?.trim()) {
+      toast.error(`Member "${targetM?.name}" does not have an email address configured.`);
+      return;
+    }
+
+    try {
+      setIsSendingSingle(true);
+      const res = await fetch("/api/admin/dispatch-reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "single_member_statement",
+          memberId: selectedMemberId,
+          startDate: singleStartDate || undefined,
+          endDate: singleEndDate || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to dispatch statement email");
+      }
+
+      toast.success(`Statement email dispatched to ${targetM.name} (${targetM.email})!`);
+      loadData();
+    } catch (err: unknown) {
+      toast.error("Failed to send statement email: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setIsSendingSingle(false);
+    }
+  };
 
   // Logs search and filter
   const [logFilter, setLogFilter] = React.useState<"all" | "sent" | "failed" | "skipped_duplicate">("all");
@@ -303,14 +369,16 @@ export default function EmailReportsPage() {
         <Card className="border-border/80 shadow-2xs">
           <CardContent className="p-4 sm:p-5">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
-              Schedule Time
+              Scheduled Dispatch Time
             </span>
             <div className="text-base sm:text-lg font-bold text-foreground mt-1 flex items-center gap-1.5">
               <Clock className="h-4 w-4 text-primary shrink-0" />
-              <span>Friday 8:00 PM</span>
+              <span>
+                {settings?.weekly_report_day || "Friday"} at {settings?.weekly_report_time || "20:00"}
+              </span>
             </div>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Bangladesh Time (Asia/Dhaka)
+              Bangladesh Time (Asia/Dhaka) &bull; Configurable in Settings
             </p>
           </CardContent>
         </Card>
@@ -385,6 +453,136 @@ export default function EmailReportsPage() {
               </a>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* 4. ON-DEMAND INDIVIDUAL STATEMENT DISPATCH */}
+      <Card className="border-border/80 shadow-2xs border-blue-500/20 bg-blue-500/5">
+        <CardHeader className="pb-3 border-b border-border/60">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Mail className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <span>Send On-Demand Member Statement (চাহিদামত ব্যক্তিগত হিসাবের ইমেইল)</span>
+          </CardTitle>
+          <CardDescription>
+            If a member requests their statement immediately, dispatch their full breakdown without waiting for the scheduled report.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-4">
+          <form onSubmit={handleSendSingleStatement} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="single-member-select" className="text-xs font-semibold">
+                  Select Member (সদস্য নির্বাচন করুন)
+                </Label>
+                <select
+                  id="single-member-select"
+                  value={selectedMemberId}
+                  onChange={(e) => setSelectedMemberId(e.target.value)}
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  required
+                >
+                  <option value="">-- Choose Member --</option>
+                  {members.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} {m.email ? `(${m.email})` : "(No email set)"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Period Preset</Label>
+                <div className="flex flex-wrap gap-1.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => handleSinglePreset("this_week")}
+                    className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                      singlePreset === "this_week"
+                        ? "bg-primary text-primary-foreground shadow-2xs"
+                        : "bg-muted text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    This Week
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSinglePreset("this_month")}
+                    className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                      singlePreset === "this_month"
+                        ? "bg-primary text-primary-foreground shadow-2xs"
+                        : "bg-muted text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    This Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSinglePreset("last_month")}
+                    className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                      singlePreset === "last_month"
+                        ? "bg-primary text-primary-foreground shadow-2xs"
+                        : "bg-muted text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Last Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSinglePreset("all")}
+                    className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                      singlePreset === "all"
+                        ? "bg-primary text-primary-foreground shadow-2xs"
+                        : "bg-muted text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    All Time
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-end justify-between gap-3 pt-2 border-t border-border/40">
+              <div className="flex flex-wrap gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="s-from" className="text-[11px] text-muted-foreground">From Date</Label>
+                  <Input
+                    id="s-from"
+                    type="date"
+                    value={singleStartDate}
+                    onChange={(e) => {
+                      setSinglePreset("custom");
+                      setSingleStartDate(e.target.value);
+                    }}
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="s-to" className="text-[11px] text-muted-foreground">To Date</Label>
+                  <Input
+                    id="s-to"
+                    type="date"
+                    value={singleEndDate}
+                    onChange={(e) => {
+                      setSinglePreset("custom");
+                      setSingleEndDate(e.target.value);
+                    }}
+                    className="h-8 text-xs"
+                  />
+                </div>
+              </div>
+
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                isLoading={isSendingSingle}
+                className="gap-1.5 h-9 text-xs"
+              >
+                <Send className="h-3.5 w-3.5" />
+                <span>Send Statement Email Now</span>
+              </Button>
+            </div>
+          </form>
         </CardContent>
       </Card>
 

@@ -7,6 +7,9 @@ import {
   MemberSummary,
   GroupSummary,
   DailyLedgerRow,
+  DailyMemberMealDetail,
+  DailyDepositDetail,
+  PeriodPaymentRecord,
   PeriodLedgerReport,
   PeriodMemberStatement,
   UserProfile,
@@ -975,13 +978,17 @@ export async function getPeriodLedgerReport(
     { meals: number; lunch: number; dinner: number; cost: number; deposit: number }
   >();
 
+  const memberMap = new Map<string, string>();
   for (const m of members) {
+    memberMap.set(m.id, m.name);
     memberPreviousMap.set(m.id, { cost: 0, deposit: 0 });
     memberPeriodMap.set(m.id, { meals: 0, lunch: 0, dinner: 0, cost: 0, deposit: 0 });
   }
 
   // Daily map for period rows
-  const dailyPeriodMap = new Map<string, MealEntry[]>();
+  const dailyPeriodMealMap = new Map<string, MealEntry[]>();
+  const dailyPeriodDepositMap = new Map<string, Deposit[]>();
+  const paymentTransactions: PeriodPaymentRecord[] = [];
 
   // Process all meals
   for (const meal of meals) {
@@ -1015,9 +1022,9 @@ export async function getPeriodLedgerReport(
           if (meal.session === "dinner") pMember.dinner += meal.quantity;
         }
 
-        const dateList = dailyPeriodMap.get(meal.meal_date) || [];
+        const dateList = dailyPeriodMealMap.get(meal.meal_date) || [];
         dateList.push(meal);
-        dailyPeriodMap.set(meal.meal_date, dateList);
+        dailyPeriodMealMap.set(meal.meal_date, dateList);
       }
     }
   }
@@ -1040,8 +1047,27 @@ export async function getPeriodLedgerReport(
       if (pMember) {
         pMember.deposit += dep.amount;
       }
+
+      // Add to daily deposit map
+      const dateList = dailyPeriodDepositMap.get(dep.deposit_date) || [];
+      dateList.push(dep);
+      dailyPeriodDepositMap.set(dep.deposit_date, dateList);
+
+      // Record payment transaction
+      paymentTransactions.push({
+        id: dep.id,
+        deposit_date: dep.deposit_date,
+        member_id: dep.member_id,
+        member_name: memberMap.get(dep.member_id) || "Unknown",
+        amount: dep.amount,
+        note: dep.note || undefined,
+        created_at: dep.created_at,
+      });
     }
   }
+
+  // Sort payment transactions newest first
+  paymentTransactions.sort((a, b) => b.deposit_date.localeCompare(a.deposit_date));
 
   // Opening calculations
   const openingBalance = openingDeposit - openingCost;
@@ -1058,24 +1084,69 @@ export async function getPeriodLedgerReport(
   const closingUnpaid = closingBalance < 0 ? Math.abs(closingBalance) : 0;
   const closingAdvance = closingBalance >= 0 ? closingBalance : 0;
 
-  // Daily Ledger Rows
-  const dailyRows: DailyLedgerRow[] = [];
-  for (const [date, list] of dailyPeriodMap.entries()) {
+  // Collect all unique dates in the period (meals or deposits)
+  const allPeriodDates = new Set<string>();
+  for (const date of dailyPeriodMealMap.keys()) allPeriodDates.add(date);
+  for (const date of dailyPeriodDepositMap.keys()) allPeriodDates.add(date);
+
+  const sortedDatesAsc = Array.from(allPeriodDates).sort((a, b) => a.localeCompare(b));
+
+  // Compute chronological progression: Previous Balance -> Day Cost -> Day Deposit -> Running Balance
+  let currentRunningBalance = openingBalance;
+  const rowsAsc: DailyLedgerRow[] = [];
+
+  for (const date of sortedDatesAsc) {
+    const mealList = dailyPeriodMealMap.get(date) || [];
+    const depositList = dailyPeriodDepositMap.get(date) || [];
+
     let lunchCount = 0;
     let dinnerCount = 0;
     let totalCost = 0;
     const membersAte = new Set<string>();
 
-    for (const item of list) {
-      if (item.quantity > 0) {
-        membersAte.add(item.member_id);
-        totalCost += item.quantity * item.unit_price;
-        if (item.session === "lunch") lunchCount += item.quantity;
-        if (item.session === "dinner") dinnerCount += item.quantity;
+    const memberMealMap = new Map<string, { lunch: number; dinner: number; cost: number }>();
+    for (const m of mealList) {
+      if (m.quantity > 0) {
+        membersAte.add(m.member_id);
+        const mCost = m.quantity * m.unit_price;
+        totalCost += mCost;
+        if (m.session === "lunch") lunchCount += m.quantity;
+        if (m.session === "dinner") dinnerCount += m.quantity;
+
+        const currentM = memberMealMap.get(m.member_id) || { lunch: 0, dinner: 0, cost: 0 };
+        if (m.session === "lunch") currentM.lunch += m.quantity;
+        if (m.session === "dinner") currentM.dinner += m.quantity;
+        currentM.cost += mCost;
+        memberMealMap.set(m.member_id, currentM);
       }
     }
 
-    dailyRows.push({
+    const memberMeals: DailyMemberMealDetail[] = Array.from(memberMealMap.entries()).map(([mId, detail]) => ({
+      member_id: mId,
+      member_name: memberMap.get(mId) || "Unknown",
+      lunch: detail.lunch,
+      dinner: detail.dinner,
+      total_meals: detail.lunch + detail.dinner,
+      cost: detail.cost,
+    }));
+
+    let dayDeposit = 0;
+    const dailyDepositsList: DailyDepositDetail[] = [];
+    for (const dep of depositList) {
+      dayDeposit += dep.amount;
+      dailyDepositsList.push({
+        id: dep.id,
+        member_id: dep.member_id,
+        member_name: memberMap.get(dep.member_id) || "Unknown",
+        amount: dep.amount,
+        note: dep.note || undefined,
+      });
+    }
+
+    const prevDayBal = currentRunningBalance;
+    currentRunningBalance = currentRunningBalance + dayDeposit - totalCost;
+
+    rowsAsc.push({
       meal_date: date,
       day_name: getWeekdayName(date),
       is_friday: isFridayDate(date),
@@ -1084,9 +1155,16 @@ export async function getPeriodLedgerReport(
       total_meals: lunchCount + dinnerCount,
       total_cost: totalCost,
       active_members_ate: membersAte.size,
+      daily_deposit: dayDeposit,
+      daily_deposits_list: dailyDepositsList,
+      member_meals: memberMeals,
+      previous_day_balance: prevDayBal,
+      running_balance: currentRunningBalance,
     });
   }
-  dailyRows.sort((a, b) => b.meal_date.localeCompare(a.meal_date));
+
+  // Reverse to descending (latest date on top)
+  const dailyRows: DailyLedgerRow[] = rowsAsc.reverse();
 
   // Member statements
   const memberStatements: PeriodMemberStatement[] = members.map((m) => {
@@ -1148,6 +1226,7 @@ export async function getPeriodLedgerReport(
     },
     dailyRows,
     memberStatements,
+    paymentTransactions,
   };
 
   setToCache(cacheKey, report);
@@ -1311,7 +1390,8 @@ export async function getMemberPersonalStatement(
       total_lunch: totalLunch,
       total_dinner: totalDinner,
       total_meal_cost: periodCost,
-      total_deposited: periodDeposited,
+      total_deposited: totalLifetimeDeposited,
+      period_deposited: periodDeposited,
       balance: currentBalance,
     },
     dailyMeals,

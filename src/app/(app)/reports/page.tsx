@@ -4,6 +4,9 @@ import * as React from "react";
 import {
   Download,
   FileSpreadsheet,
+  Filter,
+  Calendar,
+  RotateCcw,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -12,7 +15,7 @@ import {
   getCurrentUserProfile,
   getGroupAggregateLedger,
 } from "@/lib/services";
-import { formatBDT, getTodayInDhaka } from "@/lib/date";
+import { formatBDT, formatDate, getTodayInDhaka, getPresetDateRange, DatePreset } from "@/lib/date";
 import { downloadCSV } from "@/lib/csv";
 import { DailyLedgerRow, MemberSummary, UserRole } from "@/types";
 import { PageHeader } from "@/components/layout/page-header";
@@ -185,8 +188,58 @@ export default function ReportsPage() {
 
       {/* Date Filter Card */}
       <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 text-xs scrollbar-none">
+            <span className="text-xs font-semibold text-muted-foreground mr-1 flex items-center gap-1 shrink-0">
+              <Filter className="h-3.5 w-3.5" />
+              <span>Period:</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const r = getPresetDateRange("this_week");
+                setStartDate(r.startDate);
+                setEndDate(r.endDate);
+              }}
+              className="px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer shrink-0 bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              This Week
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const r = getPresetDateRange("this_month");
+                setStartDate(r.startDate);
+                setEndDate(r.endDate);
+              }}
+              className="px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer shrink-0 bg-primary text-primary-foreground shadow-2xs"
+            >
+              This Month
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const r = getPresetDateRange("last_month");
+                setStartDate(r.startDate);
+                setEndDate(r.endDate);
+              }}
+              className="px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer shrink-0 bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              Last Month
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setStartDate("");
+                setEndDate("");
+              }}
+              className="px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer shrink-0 bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              All Time
+            </button>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 pt-2 border-t border-border/60">
             <div className="space-y-1 flex-1 sm:flex-initial">
               <Label htmlFor="rep-start" className="text-xs">From Date</Label>
               <Input
@@ -211,12 +264,13 @@ export default function ReportsPage() {
               variant="outline"
               size="sm"
               onClick={() => {
-                setStartDate(firstDayOfMonth);
-                setEndDate(today);
+                setStartDate("");
+                setEndDate("");
               }}
-              className="h-9 text-xs w-full sm:w-auto"
+              className="h-9 text-xs w-full sm:w-auto gap-1.5"
             >
-              Reset to This Month
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span>Reset to All</span>
             </Button>
           </div>
         </CardContent>
