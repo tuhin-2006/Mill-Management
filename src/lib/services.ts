@@ -7,6 +7,8 @@ import {
   MemberSummary,
   GroupSummary,
   DailyLedgerRow,
+  PeriodLedgerReport,
+  PeriodMemberStatement,
 } from "@/types";
 import { getTodayInDhaka, getWeekdayName, isFridayDate } from "@/lib/date";
 
@@ -855,4 +857,248 @@ export async function getMemberLedger(
       balance,
     },
   };
+}
+
+/**
+ * 16. Comprehensive Period Ledger Report
+ * Computes Opening / Previous balance (unpaid / advance),
+ * Period Activity (meals, cost, deposits, net flow),
+ * Closing balance, daily breakdown, and member-wise statements.
+ */
+export async function getPeriodLedgerReport(
+  supabase: SupabaseClient,
+  startDate?: string,
+  endDate?: string
+): Promise<PeriodLedgerReport> {
+  const cacheKey = `period_ledger_${startDate || "all"}_${endDate || "all"}`;
+  const cached = getFromCache<PeriodLedgerReport>(cacheKey);
+  if (cached) return cached;
+
+  const [membersRes, mealsRes, depositsRes] = await Promise.all([
+    supabase.from("members").select("*").order("name", { ascending: true }),
+    supabase.from("meal_entries").select("*"),
+    supabase.from("deposits").select("*"),
+  ]);
+
+  if (membersRes.error) {
+    if (membersRes.error.code === "42P01" || membersRes.error.code === "PGRST205") {
+      return {
+        startDate,
+        endDate,
+        opening: { total_meals: 0, total_cost: 0, total_deposit: 0, balance: 0, unpaid: 0, advance: 0 },
+        period: { total_meals: 0, lunch_count: 0, dinner_count: 0, total_cost: 0, total_deposit: 0, net_flow: 0, active_days: 0 },
+        closing: { total_cost: 0, total_deposit: 0, balance: 0, unpaid: 0, advance: 0 },
+        dailyRows: [],
+        memberStatements: [],
+      };
+    }
+    throw new Error(`Failed to load members for ledger: ${membersRes.error.message}`);
+  }
+
+  const members: Member[] = membersRes.data || [];
+  const meals: MealEntry[] = (mealsRes.data || []).map((m) => ({
+    ...m,
+    unit_price: Number(m.unit_price),
+  }));
+  const deposits: Deposit[] = (depositsRes.data || []).map((d) => ({
+    ...d,
+    amount: Number(d.amount),
+  }));
+
+  // Separate Opening (records strictly BEFORE startDate)
+  let openingMealsCount = 0;
+  let openingCost = 0;
+  let openingDeposit = 0;
+
+  // Selected Period aggregates
+  let periodMealsCount = 0;
+  let periodLunchCount = 0;
+  let periodDinnerCount = 0;
+  let periodCost = 0;
+  let periodDeposit = 0;
+
+  // Maps for member-level calculation
+  const memberPreviousMap = new Map<string, { cost: number; deposit: number }>();
+  const memberPeriodMap = new Map<
+    string,
+    { meals: number; lunch: number; dinner: number; cost: number; deposit: number }
+  >();
+
+  for (const m of members) {
+    memberPreviousMap.set(m.id, { cost: 0, deposit: 0 });
+    memberPeriodMap.set(m.id, { meals: 0, lunch: 0, dinner: 0, cost: 0, deposit: 0 });
+  }
+
+  // Daily map for period rows
+  const dailyPeriodMap = new Map<string, MealEntry[]>();
+
+  // Process all meals
+  for (const meal of meals) {
+    const isBeforeStart = startDate ? meal.meal_date < startDate : false;
+    const isAfterEnd = endDate ? meal.meal_date > endDate : false;
+    const isInPeriod = !isBeforeStart && !isAfterEnd;
+
+    const mealCost = meal.quantity * meal.unit_price;
+
+    if (isBeforeStart) {
+      if (meal.quantity > 0) {
+        openingMealsCount += meal.quantity;
+        openingCost += mealCost;
+        const prev = memberPreviousMap.get(meal.member_id);
+        if (prev) {
+          prev.cost += mealCost;
+        }
+      }
+    } else if (isInPeriod) {
+      if (meal.quantity > 0) {
+        periodMealsCount += meal.quantity;
+        periodCost += mealCost;
+        if (meal.session === "lunch") periodLunchCount += meal.quantity;
+        if (meal.session === "dinner") periodDinnerCount += meal.quantity;
+
+        const pMember = memberPeriodMap.get(meal.member_id);
+        if (pMember) {
+          pMember.meals += meal.quantity;
+          pMember.cost += mealCost;
+          if (meal.session === "lunch") pMember.lunch += meal.quantity;
+          if (meal.session === "dinner") pMember.dinner += meal.quantity;
+        }
+
+        const dateList = dailyPeriodMap.get(meal.meal_date) || [];
+        dateList.push(meal);
+        dailyPeriodMap.set(meal.meal_date, dateList);
+      }
+    }
+  }
+
+  // Process all deposits
+  for (const dep of deposits) {
+    const isBeforeStart = startDate ? dep.deposit_date < startDate : false;
+    const isAfterEnd = endDate ? dep.deposit_date > endDate : false;
+    const isInPeriod = !isBeforeStart && !isAfterEnd;
+
+    if (isBeforeStart) {
+      openingDeposit += dep.amount;
+      const prev = memberPreviousMap.get(dep.member_id);
+      if (prev) {
+        prev.deposit += dep.amount;
+      }
+    } else if (isInPeriod) {
+      periodDeposit += dep.amount;
+      const pMember = memberPeriodMap.get(dep.member_id);
+      if (pMember) {
+        pMember.deposit += dep.amount;
+      }
+    }
+  }
+
+  // Opening calculations
+  const openingBalance = openingDeposit - openingCost;
+  const openingUnpaid = openingBalance < 0 ? Math.abs(openingBalance) : 0;
+  const openingAdvance = openingBalance >= 0 ? openingBalance : 0;
+
+  // Period net flow
+  const periodNetFlow = periodDeposit - periodCost;
+
+  // Closing calculations (Opening + Period)
+  const closingCost = openingCost + periodCost;
+  const closingDeposit = openingDeposit + periodDeposit;
+  const closingBalance = closingDeposit - closingCost;
+  const closingUnpaid = closingBalance < 0 ? Math.abs(closingBalance) : 0;
+  const closingAdvance = closingBalance >= 0 ? closingBalance : 0;
+
+  // Daily Ledger Rows
+  const dailyRows: DailyLedgerRow[] = [];
+  for (const [date, list] of dailyPeriodMap.entries()) {
+    let lunchCount = 0;
+    let dinnerCount = 0;
+    let totalCost = 0;
+    const membersAte = new Set<string>();
+
+    for (const item of list) {
+      if (item.quantity > 0) {
+        membersAte.add(item.member_id);
+        totalCost += item.quantity * item.unit_price;
+        if (item.session === "lunch") lunchCount += item.quantity;
+        if (item.session === "dinner") dinnerCount += item.quantity;
+      }
+    }
+
+    dailyRows.push({
+      meal_date: date,
+      day_name: getWeekdayName(date),
+      is_friday: isFridayDate(date),
+      lunch_count: lunchCount,
+      dinner_count: dinnerCount,
+      total_meals: lunchCount + dinnerCount,
+      total_cost: totalCost,
+      active_members_ate: membersAte.size,
+    });
+  }
+  dailyRows.sort((a, b) => b.meal_date.localeCompare(a.meal_date));
+
+  // Member statements
+  const memberStatements: PeriodMemberStatement[] = members.map((m) => {
+    const prev = memberPreviousMap.get(m.id) || { cost: 0, deposit: 0 };
+    const curr = memberPeriodMap.get(m.id) || { meals: 0, lunch: 0, dinner: 0, cost: 0, deposit: 0 };
+
+    const prevBalance = prev.deposit - prev.cost;
+    const prevUnpaid = prevBalance < 0 ? Math.abs(prevBalance) : 0;
+
+    const periodNet = curr.deposit - curr.cost;
+    const closingBal = prevBalance + curr.deposit - curr.cost;
+    const closingUnpaid = closingBal < 0 ? Math.abs(closingBal) : 0;
+
+    return {
+      member_id: m.id,
+      member_name: m.name,
+      status: m.status,
+      previous_cost: prev.cost,
+      previous_deposit: prev.deposit,
+      previous_balance: prevBalance,
+      previous_unpaid: prevUnpaid,
+      period_meals: curr.meals,
+      period_lunch: curr.lunch,
+      period_dinner: curr.dinner,
+      period_cost: curr.cost,
+      period_deposit: curr.deposit,
+      period_net: periodNet,
+      closing_balance: closingBal,
+      closing_unpaid: closingUnpaid,
+    };
+  });
+
+  const report: PeriodLedgerReport = {
+    startDate,
+    endDate,
+    opening: {
+      total_meals: openingMealsCount,
+      total_cost: openingCost,
+      total_deposit: openingDeposit,
+      balance: openingBalance,
+      unpaid: openingUnpaid,
+      advance: openingAdvance,
+    },
+    period: {
+      total_meals: periodMealsCount,
+      lunch_count: periodLunchCount,
+      dinner_count: periodDinnerCount,
+      total_cost: periodCost,
+      total_deposit: periodDeposit,
+      net_flow: periodNetFlow,
+      active_days: dailyRows.length,
+    },
+    closing: {
+      total_cost: closingCost,
+      total_deposit: closingDeposit,
+      balance: closingBalance,
+      unpaid: closingUnpaid,
+      advance: closingAdvance,
+    },
+    dailyRows,
+    memberStatements,
+  };
+
+  setToCache(cacheKey, report);
+  return report;
 }

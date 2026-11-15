@@ -81,3 +81,56 @@ export function formatBDT(amount: number): string {
 
   return isNegative ? `-৳${formatted}` : `৳${formatted}`;
 }
+
+export type DatePreset = "this_week" | "this_month" | "last_month" | "all";
+
+/**
+ * Returns startDate and endDate strings in YYYY-MM-DD for a chosen preset.
+ */
+export function getPresetDateRange(preset: DatePreset): {
+  startDate: string;
+  endDate: string;
+} {
+  const today = getTodayInDhaka();
+  const [yearStr, monthStr, dayStr] = today.split("-");
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10);
+  const day = parseInt(dayStr, 10);
+
+  if (preset === "all") {
+    return { startDate: "", endDate: "" };
+  }
+
+  if (preset === "this_month") {
+    const start = `${yearStr}-${String(month).padStart(2, "0")}-01`;
+    return { startDate: start, endDate: today };
+  }
+
+  if (preset === "last_month") {
+    let lastMonthYear = year;
+    let lastMonth = month - 1;
+    if (lastMonth < 1) {
+      lastMonth = 12;
+      lastMonthYear = year - 1;
+    }
+    const lastDayOfLastMonth = new Date(lastMonthYear, lastMonth, 0).getDate();
+    const start = `${lastMonthYear}-${String(lastMonth).padStart(2, "0")}-01`;
+    const end = `${lastMonthYear}-${String(lastMonth).padStart(2, "0")}-${String(lastDayOfLastMonth).padStart(2, "0")}`;
+    return { startDate: start, endDate: end };
+  }
+
+  if (preset === "this_week") {
+    const now = new Date(year, month - 1, day);
+    const past7 = new Date(now);
+    past7.setDate(past7.getDate() - 6);
+    const pYear = past7.getFullYear();
+    const pMonth = String(past7.getMonth() + 1).padStart(2, "0");
+    const pDay = String(past7.getDate()).padStart(2, "0");
+    return {
+      startDate: `${pYear}-${pMonth}-${pDay}`,
+      endDate: today,
+    };
+  }
+
+  return { startDate: "", endDate: "" };
+}

@@ -104,3 +104,59 @@ export interface DailyLedgerRow {
   total_cost: number;
   active_members_ate: number;
 }
+
+export interface PeriodMemberStatement {
+  member_id: string;
+  member_name: string;
+  status: MemberStatus;
+  // Opening / Previous before startDate
+  previous_cost: number;
+  previous_deposit: number;
+  previous_balance: number; // deposit - cost
+  previous_unpaid: number; // if balance < 0, abs(balance)
+  // Current Selected Period Activity
+  period_meals: number;
+  period_lunch: number;
+  period_dinner: number;
+  period_cost: number;
+  period_deposit: number;
+  period_net: number; // period_deposit - period_cost
+  // Closing Cumulative at endDate
+  closing_balance: number; // previous_balance + period_deposit - period_cost
+  closing_unpaid: number; // if balance < 0, abs(balance)
+}
+
+export interface PeriodLedgerReport {
+  startDate?: string;
+  endDate?: string;
+  // Opening / Previous before startDate
+  opening: {
+    total_meals: number;
+    total_cost: number;
+    total_deposit: number;
+    balance: number; // deposit - cost
+    unpaid: number; // if balance < 0, abs(balance)
+    advance: number; // if balance >= 0, balance
+  };
+  // Current Period Activity
+  period: {
+    total_meals: number;
+    lunch_count: number;
+    dinner_count: number;
+    total_cost: number;
+    total_deposit: number;
+    net_flow: number; // deposit - cost
+    active_days: number;
+  };
+  // Closing Cumulative
+  closing: {
+    total_cost: number;
+    total_deposit: number;
+    balance: number;
+    unpaid: number;
+    advance: number;
+  };
+  dailyRows: DailyLedgerRow[];
+  memberStatements: PeriodMemberStatement[];
+}
+
