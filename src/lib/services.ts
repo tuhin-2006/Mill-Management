@@ -161,6 +161,26 @@ export async function updateMember(
 }
 
 /**
+ * 5.1 Delete a member and clean up associated records
+ */
+export async function deleteMember(
+  supabase: SupabaseClient,
+  id: string
+): Promise<void> {
+  // Delete associated child records first to satisfy foreign key constraints
+  await supabase.from("meal_entries").delete().eq("member_id", id);
+  await supabase.from("deposits").delete().eq("member_id", id);
+  await supabase.from("adjustments").delete().eq("member_id", id);
+
+  // Delete the member record
+  const { error } = await supabase.from("members").delete().eq("id", id);
+
+  if (error) {
+    throw new Error(`Failed to delete member: ${error.message}`);
+  }
+}
+
+/**
  * 6. Get meal entries for a specific date
  */
 export async function getMealsForDate(

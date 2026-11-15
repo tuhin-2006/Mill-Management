@@ -10,6 +10,11 @@ import {
   Info,
   Plus,
   Minus,
+  CheckCircle2,
+  AlertCircle,
+  AlertTriangle,
+  Check,
+  X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -25,6 +30,7 @@ import {
   getWeekdayName,
   isFridayDate,
   formatDate,
+  formatFullDate,
   formatBDT,
 } from "@/lib/date";
 import { Member, MealEntry, Settings } from "@/types";
@@ -42,13 +48,26 @@ export default function DailyMealEntryPage() {
   const [isSaving, setIsSaving] = React.useState(false);
   const [hasExistingRecord, setHasExistingRecord] = React.useState(false);
 
-  // Meal selections: member_id -> { lunch: 0 | 1, dinner: 0 | 1 }
+  // Meal selections: member_id -> { lunch: 0 | 1 | 2..., dinner: 0 | 1 | 2... }
   const [mealSelections, setMealSelections] = React.useState<
     Record<string, { lunch: number; dinner: number }>
   >({});
+  const [savedSelections, setSavedSelections] = React.useState<
+    Record<string, { lunch: number; dinner: number }>
+  >({});
+
+  // Safety & UX states
+  const [isConfirmOpen, setIsConfirmOpen] = React.useState(false);
+  const [hoveredMemberId, setHoveredMemberId] = React.useState<string | null>(null);
 
   const weekday = getWeekdayName(selectedDate);
   const isFriday = isFridayDate(selectedDate);
+
+  // Check if there are unsaved changes
+  const isDirty = React.useMemo(() => {
+    if (Object.keys(savedSelections).length === 0) return false;
+    return JSON.stringify(mealSelections) !== JSON.stringify(savedSelections);
+  }, [mealSelections, savedSelections]);
 
   // 1. Initial Load of Members and Settings
   React.useEffect(() => {
@@ -105,6 +124,7 @@ export default function DailyMealEntryPage() {
         }
 
         setMealSelections(initialMap);
+        setSavedSelections(initialMap);
         setHasExistingRecord(foundAny);
       } catch (err: unknown) {
         console.error("Failed to load date meals:", err);
@@ -113,6 +133,20 @@ export default function DailyMealEntryPage() {
 
     loadDateMeals();
   }, [selectedDate, members, isFriday]);
+
+  // Date Change with unsaved changes guard
+  const handleDateChange = (newDate: string) => {
+    if (isDirty) {
+      if (
+        !confirm(
+          "⚠️ আপনার এই তারিখের পরিবর্তনগুলো এখনও সেভ করা হয়নি। আপনি কি পরিবর্তনগুলো বাতিল করে অন্য তারিখে যেতে চান?"
+        )
+      ) {
+        return;
+      }
+    }
+    setSelectedDate(newDate);
+  };
 
   // Handle set meal quantity (supports 0, 1, 2+ guest meals)
   const handleSetQuantity = (memberId: string, session: "lunch" | "dinner", qty: number) => {
@@ -132,6 +166,31 @@ export default function DailyMealEntryPage() {
         },
       };
     });
+  };
+
+  // Quick batch actions
+  const handleQuickSetAll = (session: "lunch" | "dinner" | "both") => {
+    setMealSelections((prev) => {
+      const next = { ...prev };
+      for (const m of activeMembers) {
+        const cur = { ...(next[m.id] || { lunch: 0, dinner: 0 }) };
+        if (session === "lunch" || session === "both") {
+          cur.lunch = 1;
+        }
+        if ((session === "dinner" || session === "both") && !isFriday) {
+          cur.dinner = 1;
+        }
+        next[m.id] = cur;
+      }
+      return next;
+    });
+    toast.info(
+      session === "both"
+        ? "All active members set to 1 lunch & 1 dinner."
+        : session === "lunch"
+        ? "All active members set to 1 lunch."
+        : "All active members set to 1 dinner."
+    );
   };
 
   // Reset all to 0
@@ -162,8 +221,13 @@ export default function DailyMealEntryPage() {
   const totalDailyMeals = totalLunch + totalDinner;
   const totalDailyCost = totalDailyMeals * effectiveMealPrice;
 
-  // Save / Update daily meals
-  const handleSave = async () => {
+  // Open review confirmation modal
+  const handleSave = () => {
+    setIsConfirmOpen(true);
+  };
+
+  // Actually execute database upsert
+  const handleExecuteSave = async () => {
     try {
       setIsSaving(true);
       const supabase = createClient();
@@ -176,7 +240,9 @@ export default function DailyMealEntryPage() {
 
       await saveDailyMeals(supabase, selectedDate, payload, effectiveMealPrice);
 
+      setSavedSelections(mealSelections);
       setHasExistingRecord(true);
+      setIsConfirmOpen(false);
       toast.success(
         `Daily meals for ${formatDate(selectedDate)} saved successfully! (${totalDailyMeals} meals, ${formatBDT(totalDailyCost)})`
       );
@@ -231,7 +297,7 @@ export default function DailyMealEntryPage() {
                     id="meal-date-picker"
                     type="date"
                     value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
+                    onChange={(e) => handleDateChange(e.target.value)}
                     className="h-10 px-3 rounded-lg border border-border bg-card text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
                   />
                 </div>
@@ -265,9 +331,36 @@ export default function DailyMealEntryPage() {
         </CardContent>
       </Card>
 
+      {/* Unsaved Changes Banner */}
+      {isDirty && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs shadow-xs animate-in fade-in slide-in-from-top-1">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <div>
+              <span className="font-bold">
+                ⚠️ আপনার পরিবর্তনগুলো এখনও সেভ করা হয়নি! (Unsaved Changes)
+              </span>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                ভুল এড়াতে নিচের &quot;{hasExistingRecord ? "Update Daily Meals" : "Save Daily Meals"}&quot; বাটনে ক্লিক করে নিশ্চিত করুন।
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="primary"
+            onClick={handleSave}
+            className="h-8 text-xs px-3.5 shadow-xs shrink-0 self-end sm:self-auto"
+          >
+            <Save className="h-3.5 w-3.5 mr-1" />
+            <span>Review & Save</span>
+          </Button>
+        </div>
+      )}
+
       {/* Members Meal Entry Table */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-3">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 gap-3">
           <div>
             <CardTitle className="text-base font-semibold">Group Members Attendance</CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -281,6 +374,43 @@ export default function DailyMealEntryPage() {
                 </span>
               )}
             </p>
+          </div>
+
+          {/* Quick Batch Actions */}
+          <div className="flex flex-wrap items-center gap-1.5 pt-1 sm:pt-0">
+            <span className="text-[11px] font-semibold text-muted-foreground mr-1">দ্রুত সেট:</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => handleQuickSetAll("both")}
+              className="h-7 text-xs px-2.5 font-medium"
+              title="সকল মেম্বারের জন্য ১ লাঞ্চ ও ১ ডিনার সিলেক্ট করুন"
+            >
+              সবাই খেয়েছে (All Ate)
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => handleQuickSetAll("lunch")}
+              className="h-7 text-xs px-2.5 font-medium"
+              title="সকল মেম্বারের জন্য শুধু ১ লাঞ্চ সিলেক্ট করুন"
+            >
+              সবাই লাঞ্চ
+            </Button>
+            {!isFriday && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => handleQuickSetAll("dinner")}
+                className="h-7 text-xs px-2.5 font-medium"
+                title="সকল মেম্বারের জন্য শুধু ১ ডিনার সিলেক্ট করুন"
+              >
+                সবাই ডিনার
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -315,27 +445,52 @@ export default function DailyMealEntryPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {members.map((member) => {
+                  {members.map((member, index) => {
                     const current = mealSelections[member.id] || { lunch: 0, dinner: 0 };
                     const memberTotalMeals = current.lunch + (isFriday ? 0 : current.dinner);
                     const memberCost = memberTotalMeals * effectiveMealPrice;
                     const isInactive = member.status === "inactive";
+                    const isHovered = hoveredMemberId === member.id;
+                    const hasMeals = memberTotalMeals > 0;
 
                     return (
                       <tr
                         key={member.id}
-                        className={`hover:bg-muted/20 transition-colors ${
-                          isInactive ? "opacity-60 bg-muted/10" : ""
-                        }`}
+                        onMouseEnter={() => setHoveredMemberId(member.id)}
+                        onMouseLeave={() => setHoveredMemberId(null)}
+                        className={`transition-colors border-l-2 ${
+                          isHovered
+                            ? "bg-primary/10 border-l-primary"
+                            : hasMeals
+                            ? "bg-primary/5 border-l-primary/60"
+                            : "border-l-transparent hover:bg-muted/20"
+                        } ${isInactive ? "opacity-60 bg-muted/10" : ""}`}
                       >
                         <td className="py-3 px-4 font-medium text-foreground">
-                          <div className="flex items-center gap-2">
-                            <span>{member.name}</span>
-                            {isInactive && (
-                              <Badge variant="secondary" className="text-[10px]">
-                                Inactive
-                              </Badge>
-                            )}
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-[11px] text-muted-foreground w-4 text-right">
+                              #{index + 1}
+                            </span>
+                            <div className="h-8 w-8 rounded-full bg-primary/10 text-primary font-bold flex items-center justify-center text-xs shrink-0 border border-primary/20">
+                              {member.name.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-foreground text-sm">
+                                  {member.name}
+                                </span>
+                                {isInactive && (
+                                  <Badge variant="secondary" className="text-[10px]">
+                                    Inactive
+                                  </Badge>
+                                )}
+                              </div>
+                              <span className="text-[11px] text-muted-foreground">
+                                {memberTotalMeals > 0
+                                  ? `${memberTotalMeals} meal${memberTotalMeals > 1 ? "s" : ""} selected`
+                                  : "No meals today"}
+                              </span>
+                            </div>
                           </div>
                         </td>
 
@@ -523,6 +678,145 @@ export default function DailyMealEntryPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Review & Confirmation Modal */}
+      {isConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <Card className="w-full max-w-lg shadow-2xl border-border">
+            <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border">
+              <div>
+                <CardTitle className="text-base font-bold flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-primary" />
+                  <span>{hasExistingRecord ? "মিল আপডেট নিশ্চিতকরণ" : "মিল এন্ট্রি নিশ্চিতকরণ"}</span>
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {formatFullDate(selectedDate)} ({weekday})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsConfirmOpen(false)}
+                className="text-muted-foreground hover:text-foreground p-1 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+
+            <CardContent className="pt-4 space-y-4 max-h-[75vh] overflow-y-auto">
+              <div className="p-3 rounded-lg bg-muted/60 border border-border text-xs text-muted-foreground space-y-1">
+                <p className="font-semibold text-foreground flex items-center gap-1.5">
+                  <AlertCircle className="h-4 w-4 text-primary shrink-0" />
+                  {hasExistingRecord
+                    ? "আপনি পূর্বের সংরক্ষিত রেকর্ডের ওপর তথ্য আপডেট করতে যাচ্ছেন।"
+                    : "অনুগ্রহ করে সেভ করার পূর্বে মেম্বারদের মিলের হিসাব মিলিয়ে নিন:"}
+                </p>
+                <p className="pl-5.5">
+                  মিল রেট: <strong>{formatBDT(effectiveMealPrice)}</strong>/মিল
+                  {isFriday ? " (শুক্রবার বিশেষ রেট)" : ""}
+                </p>
+              </div>
+
+              {/* Members summary table */}
+              <div className="rounded-lg border border-border overflow-hidden">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-muted/70 text-muted-foreground font-semibold">
+                    <tr>
+                      <th className="py-2.5 px-3">মেম্বার</th>
+                      <th className="py-2.5 px-2 text-center">লাঞ্চ</th>
+                      <th className="py-2.5 px-2 text-center">ডিনার</th>
+                      <th className="py-2.5 px-2 text-center">মোট মিল</th>
+                      <th className="py-2.5 px-3 text-right">খরচ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {activeMembers.map((m) => {
+                      const cur = mealSelections[m.id] || { lunch: 0, dinner: 0 };
+                      const mTotal = cur.lunch + (isFriday ? 0 : cur.dinner);
+                      const mCost = mTotal * effectiveMealPrice;
+                      return (
+                        <tr key={m.id} className={mTotal > 0 ? "bg-card" : "bg-muted/20 opacity-60"}>
+                          <td className="py-2 px-3 font-medium text-foreground">
+                            {m.name}
+                          </td>
+                          <td className="py-2 px-2 text-center">
+                            {cur.lunch > 0 ? (
+                              <span className="font-bold text-amber-600 dark:text-amber-400">
+                                {cur.lunch}
+                                {cur.lunch > 1 && (
+                                  <span className="text-[10px] ml-1 bg-amber-500/10 px-1 py-0.2 rounded-sm">
+                                    +{cur.lunch - 1} গেস্ট
+                                  </span>
+                                )}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground/60">0</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-2 text-center">
+                            {isFriday ? (
+                              <span className="text-muted-foreground/50 text-[10px]">বন্ধ</span>
+                            ) : cur.dinner > 0 ? (
+                              <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                                {cur.dinner}
+                                {cur.dinner > 1 && (
+                                  <span className="text-[10px] ml-1 bg-indigo-500/10 px-1 py-0.2 rounded-sm">
+                                    +{cur.dinner - 1} গেস্ট
+                                  </span>
+                                )}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground/60">0</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-2 text-center font-bold text-foreground">
+                            {mTotal}
+                          </td>
+                          <td className="py-2 px-3 text-right font-medium text-foreground">
+                            {formatBDT(mCost)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="bg-primary/10 font-bold border-t border-border text-foreground">
+                    <tr>
+                      <td className="py-2 px-3">সর্বমোট</td>
+                      <td className="py-2 px-2 text-center text-amber-600 dark:text-amber-400">{totalLunch}</td>
+                      <td className="py-2 px-2 text-center text-indigo-600 dark:text-indigo-400">{isFriday ? 0 : totalDinner}</td>
+                      <td className="py-2 px-2 text-center text-primary">{totalDailyMeals}</td>
+                      <td className="py-2 px-3 text-right text-emerald-600 dark:text-emerald-400">{formatBDT(totalDailyCost)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsConfirmOpen(false)}
+                  disabled={isSaving}
+                >
+                  ফিরে গিয়ে পরিবর্তন করুন (Back)
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={handleExecuteSave}
+                  isLoading={isSaving}
+                  className="gap-1.5 shadow-sm"
+                >
+                  <Check className="h-4 w-4" />
+                  <span>{hasExistingRecord ? "হ্যাঁ, আপডেট নিশ্চিত করুন" : "হ্যাঁ, সেভ নিশ্চিত করুন"}</span>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

@@ -6,6 +6,8 @@ import {
   Edit2,
   Power,
   Eye,
+  Trash2,
+  AlertTriangle,
   X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -13,6 +15,7 @@ import {
   getMembers,
   addMember,
   updateMember,
+  deleteMember,
   getGroupSummary,
   getMemberLedger,
 } from "@/lib/services";
@@ -40,6 +43,10 @@ export default function MembersPage() {
 
   const [editMember, setEditMember] = React.useState<Member | null>(null);
   const [editName, setEditName] = React.useState("");
+
+  // Delete member state
+  const [memberToDelete, setMemberToDelete] = React.useState<Member | null>(null);
+  const [isDeleting, setIsDeleting] = React.useState(false);
 
   // Detail / history view modal
   const [detailMemberId, setDetailMemberId] = React.useState<string | null>(null);
@@ -204,6 +211,23 @@ export default function MembersPage() {
     }
   };
 
+  // Delete Member Permanently
+  const handleDeleteMember = async () => {
+    if (!memberToDelete) return;
+    try {
+      setIsDeleting(true);
+      const supabase = createClient();
+      await deleteMember(supabase, memberToDelete.id);
+      toast.success(`Member "${memberToDelete.name}" deleted successfully.`);
+      setMemberToDelete(null);
+      loadData();
+    } catch (err: unknown) {
+      toast.error("Failed to delete member: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -336,6 +360,17 @@ export default function MembersPage() {
                             >
                               <Power className="h-3.5 w-3.5" />
                             </Button>
+
+                            {/* Delete Member Button */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setMemberToDelete(member)}
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                              title="Delete Member"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
                           </div>
                         </td>
                       </tr>
@@ -434,6 +469,70 @@ export default function MembersPage() {
                   </Button>
                 </div>
               </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Delete Member Confirmation Modal */}
+      {memberToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <Card className="w-full max-w-md shadow-2xl border-destructive/30">
+            <CardHeader className="flex flex-row items-start gap-3 pb-3 border-b border-border/80">
+              <div className="p-2.5 rounded-full bg-destructive/10 text-destructive shrink-0 mt-0.5">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div className="flex-1">
+                <CardTitle className="text-base text-foreground">
+                  Delete Member: {memberToDelete.name}
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  সদস্য ডিলিট নিশ্চিতকরণ
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMemberToDelete(null)}
+                className="text-muted-foreground hover:text-foreground p-1"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+            <CardContent className="pt-4 space-y-4">
+              <p className="text-xs text-foreground leading-relaxed">
+                আপনি কি নিশ্চিত যে আপনি <strong>&quot;{memberToDelete.name}&quot;</strong>-কে মেম্বার তালিকা থেকে মুছে ফেলতে চান?
+              </p>
+              <div className="p-3 rounded-lg bg-destructive/5 border border-destructive/20 text-xs text-destructive leading-relaxed space-y-1">
+                <p className="font-semibold flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  স্থায়ী সতর্কবার্তা:
+                </p>
+                <p>
+                  এই সদস্যের সাথে সম্পর্কিত সমস্ত খাবার খরচ (Meal Records) এবং জমার লেনদেন (Deposits) স্থায়ীভাবে মুছে ফেলা হবে।
+                </p>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMemberToDelete(null)}
+                  disabled={isDeleting}
+                >
+                  Cancel (বাতিল)
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleDeleteMember}
+                  isLoading={isDeleting}
+                  className="gap-1.5"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Yes, Delete Member</span>
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
