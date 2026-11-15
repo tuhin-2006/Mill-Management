@@ -17,25 +17,64 @@ import {
   Wallet,
   MoreHorizontal,
 } from "lucide-react";
-import { navigationConfig } from "@/config/navigation";
+import { navigationConfig, getNavigationForRole, NavItem } from "@/config/navigation";
 import { siteConfig } from "@/config/site";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { invalidateCache } from "@/lib/services";
 import { useInactivityLogout } from "@/hooks/use-inactivity-logout";
+import { UserRole } from "@/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export interface AppShellProps {
+  children: React.ReactNode;
+  userRole?: UserRole;
+  userEmail?: string;
+  memberName?: string;
+}
+
+export function AppShell({
+  children,
+  userRole = "admin",
+  userEmail,
+  memberName,
+}: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const [isCollapsed, setIsCollapsed] = React.useState(false);
   const [isLoggingOut, setIsLoggingOut] = React.useState(false);
 
+  const navItems: NavItem[] = React.useMemo(() => {
+    return getNavigationForRole(userRole);
+  }, [userRole]);
+
   // Automatic logout on inactivity (15 mins with 1 min advance alert)
   useInactivityLogout();
+
+  // Client-side route guard for non-admin roles
+  const isUnauthorized = React.useMemo(() => {
+    if (userRole === "member") {
+      return !["/", "/my-meals", "/my-deposits", "/my-statement"].includes(pathname);
+    }
+    if (userRole === "group_ledger_viewer") {
+      return !["/", "/reports"].includes(pathname);
+    }
+    return false;
+  }, [userRole, pathname]);
+
+  React.useEffect(() => {
+    if (isUnauthorized) {
+      toast.error(
+        userRole === "member"
+          ? "Access restricted. Redirecting to personal dashboard..."
+          : "Access restricted. Redirecting to aggregate dashboard..."
+      );
+      router.replace("/");
+    }
+  }, [isUnauthorized, userRole, router]);
 
   const handleLogout = async () => {
     try {
@@ -53,6 +92,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       setIsLoggingOut(false);
     }
   };
+
+  // Helper for role label in header
+  const roleDisplay = React.useMemo(() => {
+    switch (userRole) {
+      case "admin":
+        return {
+          title: "Admin Private Session",
+          badge: "Administrator",
+          color: "text-emerald-600 dark:text-emerald-400",
+        };
+      case "group_ledger_viewer":
+        return {
+          title: "Group Ledger Audit Session",
+          badge: "Aggregate Viewer",
+          color: "text-blue-600 dark:text-blue-400",
+        };
+      case "member":
+      default:
+        return {
+          title: memberName ? `${memberName}'s Member Portal` : "Member Portal",
+          badge: "Member",
+          color: "text-primary",
+        };
+    }
+  }, [userRole, memberName]);
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col md:flex-row w-full overflow-x-hidden">
@@ -90,7 +154,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Navigation Items */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navigationConfig.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href;
             return (
@@ -214,7 +278,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <nav className="mt-3 flex-1 space-y-1 overflow-y-auto">
-              {navigationConfig.map((item) => {
+              {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = pathname === item.href;
                 return (
@@ -250,14 +314,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className="w-full text-destructive hover:bg-destructive/10 hover:text-destructive justify-start gap-2 text-xs h-9"
               >
                 <LogOut className="h-4 w-4" />
-                <span>Logout Admin Session</span>
+                <span>Logout Session</span>
               </Button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Mobile Bottom Navigation Bar (Thumb Friendly) */}
+      {/* Mobile Bottom Navigation Bar (Thumb Friendly & Role Aware) */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-card/95 backdrop-blur-md border-t border-border flex items-center justify-around h-15 px-2 safe-bottom">
         <Link
           href="/"
@@ -272,57 +336,113 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span>Home</span>
         </Link>
 
-        <Link
-          href="/meals"
-          className={cn(
-            "flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors",
-            pathname === "/meals"
-              ? "text-primary font-bold"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <UtensilsCrossed className="h-4.5 w-4.5 mb-0.5" />
-          <span>Meals</span>
-        </Link>
+        {userRole === "admin" && (
+          <>
+            <Link
+              href="/meals"
+              className={cn(
+                "flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors",
+                pathname === "/meals" ? "text-primary font-bold" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <UtensilsCrossed className="h-4.5 w-4.5 mb-0.5" />
+              <span>Meals</span>
+            </Link>
 
-        <Link
-          href="/deposits"
-          className={cn(
-            "flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors",
-            pathname === "/deposits"
-              ? "text-primary font-bold"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <Wallet className="h-4.5 w-4.5 mb-0.5" />
-          <span>Deposits</span>
-        </Link>
+            <Link
+              href="/deposits"
+              className={cn(
+                "flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors",
+                pathname === "/deposits" ? "text-primary font-bold" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Wallet className="h-4.5 w-4.5 mb-0.5" />
+              <span>Deposits</span>
+            </Link>
 
-        <Link
-          href="/members"
-          className={cn(
-            "flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors",
-            pathname === "/members"
-              ? "text-primary font-bold"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <Users className="h-4.5 w-4.5 mb-0.5" />
-          <span>Members</span>
-        </Link>
+            <Link
+              href="/members"
+              className={cn(
+                "flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors",
+                pathname === "/members" ? "text-primary font-bold" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Users className="h-4.5 w-4.5 mb-0.5" />
+              <span>Members</span>
+            </Link>
+          </>
+        )}
+
+        {userRole === "member" && (
+          <>
+            <Link
+              href="/my-meals"
+              className={cn(
+                "flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors",
+                pathname === "/my-meals" ? "text-primary font-bold" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <UtensilsCrossed className="h-4.5 w-4.5 mb-0.5" />
+              <span>Meals</span>
+            </Link>
+
+            <Link
+              href="/my-deposits"
+              className={cn(
+                "flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors",
+                pathname === "/my-deposits" ? "text-primary font-bold" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Wallet className="h-4.5 w-4.5 mb-0.5" />
+              <span>Deposits</span>
+            </Link>
+
+            <Link
+              href="/my-statement"
+              className={cn(
+                "flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors",
+                pathname === "/my-statement" ? "text-primary font-bold" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Users className="h-4.5 w-4.5 mb-0.5" />
+              <span>Statement</span>
+            </Link>
+          </>
+        )}
+
+        {userRole === "group_ledger_viewer" && (
+          <>
+            <Link
+              href="/"
+              className={cn(
+                "flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors",
+                pathname === "/" ? "text-primary font-bold" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <LayoutDashboard className="h-4.5 w-4.5 mb-0.5" />
+              <span>Aggregate</span>
+            </Link>
+
+            <Link
+              href="/reports"
+              className={cn(
+                "flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors",
+                pathname === "/reports" ? "text-primary font-bold" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Wallet className="h-4.5 w-4.5 mb-0.5" />
+              <span>Reports</span>
+            </Link>
+          </>
+        )}
 
         <button
           type="button"
           onClick={() => setMobileOpen(true)}
-          className={cn(
-            "flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium transition-colors cursor-pointer",
-            pathname === "/ledger" || pathname === "/reports" || pathname === "/settings"
-              ? "text-primary font-bold"
-              : "text-muted-foreground hover:text-foreground"
-          )}
+          className="flex flex-col items-center justify-center flex-1 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
         >
           <MoreHorizontal className="h-4.5 w-4.5 mb-0.5" />
-          <span>More</span>
+          <span>Menu</span>
         </button>
       </div>
 
@@ -336,8 +456,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Desktop Header */}
         <header className="hidden md:flex h-16 items-center justify-between px-6 lg:px-8 border-b border-border bg-card/60 backdrop-blur-xs sticky top-0 z-20">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-            <span className="font-medium">Admin Private Session</span>
+            <ShieldCheck className={cn("h-4 w-4", roleDisplay.color)} />
+            <span className="font-semibold text-foreground">{roleDisplay.title}</span>
+            <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-primary/10 text-primary border border-primary/20">
+              {roleDisplay.badge}
+            </span>
           </div>
           <div className="flex items-center gap-3">
             <ThemeToggle />
@@ -346,7 +469,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Page Content */}
         <main className="flex-1 p-3.5 sm:p-6 lg:p-8 max-w-6xl w-full mx-auto pb-20 md:pb-8 min-w-0">
-          {children}
+          {isUnauthorized ? (
+            <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-3">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <p className="text-sm text-muted-foreground font-medium">
+                Redirecting to authorized dashboard...
+              </p>
+            </div>
+          ) : (
+            children
+          )}
         </main>
       </div>
     </div>

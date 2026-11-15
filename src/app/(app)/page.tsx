@@ -16,7 +16,12 @@ import {
   Calendar,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { getDashboardData } from "@/lib/services";
+import {
+  getDashboardData,
+  getCurrentUserProfile,
+  getMemberPersonalStatement,
+  getGroupAggregateLedger,
+} from "@/lib/services";
 import { formatBDT, formatFullDate, formatDate } from "@/lib/date";
 import { Deposit, MealEntry, GroupSummary } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -24,6 +29,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MigrationAlert } from "@/components/shared/migration-alert";
 import { MemberBalanceTable } from "@/components/dashboard/member-balance-table";
+import { MemberDashboard } from "@/components/dashboard/member-dashboard";
+import { GroupLedgerViewerDashboard } from "@/components/dashboard/viewer-dashboard";
 
 const AVATAR_COLORS = [
   "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30",
@@ -54,6 +61,24 @@ function getInitials(name: string): string {
 
 export default async function DashboardPage() {
   const supabase = await createClient();
+
+  // Role-Based Dashboard Resolution
+  const profile = await getCurrentUserProfile(supabase);
+
+  if (profile?.role === "member") {
+    let statement = null;
+    if (profile.member_id) {
+      statement = await getMemberPersonalStatement(supabase, profile.member_id);
+    }
+    if (statement) {
+      return <MemberDashboard initialData={statement} />;
+    }
+  }
+
+  if (profile?.role === "group_ledger_viewer") {
+    const aggregateReport = await getGroupAggregateLedger(supabase);
+    return <GroupLedgerViewerDashboard initialReport={aggregateReport} />;
+  }
 
   let summary: GroupSummary;
   let recentDeposits: Deposit[] = [];

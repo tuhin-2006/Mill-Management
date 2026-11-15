@@ -9,6 +9,11 @@ import {
   DailyLedgerRow,
   PeriodLedgerReport,
   PeriodMemberStatement,
+  UserProfile,
+  UserRole,
+  GroupAggregateReport,
+  MemberPersonalStatement,
+  EmailLog,
 } from "@/types";
 import { getTodayInDhaka, getWeekdayName, isFridayDate } from "@/lib/date";
 
@@ -113,10 +118,11 @@ export async function updateSettings(
   let data = res.data;
   const error = res.error;
 
-  // If friday_meal_price column doesn't exist yet in Supabase, retry without it
-  if (error && error.message.includes("friday_meal_price")) {
+  // If columns don't exist yet in Supabase, retry without them gracefully
+  if (error && (error.message.includes("friday_meal_price") || error.message.includes("group_ledger_viewer_email"))) {
     const fallbackUpdates = { ...updates };
-    delete fallbackUpdates.friday_meal_price;
+    if (error.message.includes("friday_meal_price")) delete fallbackUpdates.friday_meal_price;
+    if (error.message.includes("group_ledger_viewer_email")) delete fallbackUpdates.group_ledger_viewer_email;
     const retry = await supabase
       .from("settings")
       .update({
@@ -176,19 +182,35 @@ export async function getMembers(supabase: SupabaseClient): Promise<Member[]> {
  */
 export async function addMember(
   supabase: SupabaseClient,
-  name: string
+  name: string,
+  email?: string | null
 ): Promise<Member> {
   invalidateCache();
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Member name cannot be empty.");
 
+  const payload: { name: string; status: "active"; email?: string | null } = {
+    name: trimmed,
+    status: "active",
+  };
+  if (email !== undefined) {
+    payload.email = email && email.trim() ? email.trim() : null;
+  }
+
   const { data, error } = await supabase
     .from("members")
-    .insert({ name: trimmed, status: "active" })
+    .insert(payload)
     .select()
     .single();
 
   if (error) {
+    // Graceful fallback if email column does not exist yet
+    if (error.message.includes("email") && payload.email !== undefined) {
+      delete payload.email;
+      const retry = await supabase.from("members").insert(payload).select().single();
+      if (retry.error) throw new Error(`Failed to add member: ${retry.error.message}`);
+      return retry.data;
+    }
     throw new Error(`Failed to add member: ${error.message}`);
   }
 
@@ -196,12 +218,12 @@ export async function addMember(
 }
 
 /**
- * 5. Update an existing member (name / status)
+ * 5. Update an existing member (name / status / email)
  */
 export async function updateMember(
   supabase: SupabaseClient,
   id: string,
-  updates: { name?: string; status?: "active" | "inactive" }
+  updates: { name?: string; status?: "active" | "inactive"; email?: string | null }
 ): Promise<Member> {
   invalidateCache();
   const { data, error } = await supabase
@@ -212,10 +234,36 @@ export async function updateMember(
     .single();
 
   if (error) {
+    if (error.message.includes("email") && "email" in updates) {
+      const fallbackUpdates = { ...updates };
+      delete fallbackUpdates.email;
+      const retry = await supabase.from("members").update(fallbackUpdates).eq("id", id).select().single();
+      if (retry.error) throw new Error(`Failed to update member: ${retry.error.message}`);
+      return retry.data;
+    }
     throw new Error(`Failed to update member: ${error.message}`);
   }
 
   return data;
+}
+
+/**
+ * Fetch recent email reporting delivery logs
+ */
+export async function getEmailLogs(
+  supabase: SupabaseClient,
+  limit = 20
+) {
+  const { data, error } = await supabase
+    .from("email_logs")
+    .select("*, member:members(name)")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    return [];
+  }
+  return data || [];
 }
 
 /**
@@ -1101,4 +1149,271 @@ export async function getPeriodLedgerReport(
 
   setToCache(cacheKey, report);
   return report;
+}
+
+/**
+ * 17. Multi-User Authentication & Profile Services
+ */
+export async function getCurrentUserProfile(
+  supabase: SupabaseClient
+): Promise<(UserProfile & { member_name?: string }) | null> {
+  const { data: authData, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !authData?.user) return null;
+
+  const user = authData.user;
+  const { data: profile, error: profErr } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .single();
+
+  let role: UserRole = "member";
+  let memberId: string | null = null;
+  let memberName: string | undefined;
+
+  if (profErr || !profile) {
+    role = user.email?.toLowerCase().includes("admin") ? "admin" : "member";
+  } else {
+    role = (profile.role as UserRole) || (user.email?.toLowerCase().includes("admin") ? "admin" : "member");
+    memberId = profile.member_id || null;
+  }
+
+  // If memberId is null and role is member, try resolving via members table
+  if (!memberId && role === "member") {
+    const { data: matchedMember } = await supabase
+      .from("members")
+      .select("id, name")
+      .or(`user_id.eq.${user.id},email.eq.${user.email}`)
+      .limit(1)
+      .maybeSingle();
+
+    if (matchedMember) {
+      memberId = matchedMember.id;
+      memberName = matchedMember.name;
+    }
+  } else if (memberId) {
+    const { data: memberData } = await supabase
+      .from("members")
+      .select("name")
+      .eq("id", memberId)
+      .single();
+    if (memberData) {
+      memberName = memberData.name;
+    }
+  }
+
+  return {
+    id: user.id,
+    email: user.email || "",
+    role,
+    member_id: memberId,
+    member_name: memberName,
+    created_at: profile?.created_at || new Date().toISOString(),
+  };
+}
+
+/**
+ * 18. Member Personal Statement (For authenticated Member role)
+ */
+export async function getMemberPersonalStatement(
+  supabase: SupabaseClient,
+  memberId: string,
+  startDate?: string,
+  endDate?: string
+): Promise<MemberPersonalStatement | null> {
+  const [memberRes, mealsRes, depositsRes] = await Promise.all([
+    supabase.from("members").select("*").eq("id", memberId).single(),
+    supabase.from("meal_entries").select("*").eq("member_id", memberId),
+    supabase.from("deposits").select("*").eq("member_id", memberId).order("deposit_date", { ascending: false }),
+  ]);
+
+  if (memberRes.error || !memberRes.data) {
+    return null;
+  }
+
+  const member: Member = memberRes.data;
+  const rawMeals: MealEntry[] = (mealsRes.data || []).map((m) => ({
+    ...m,
+    unit_price: Number(m.unit_price),
+    quantity: Number(m.quantity),
+  }));
+  const deposits: Deposit[] = (depositsRes.data || []).map((d) => ({
+    ...d,
+    amount: Number(d.amount),
+  }));
+
+  // Filter meals & deposits if period given
+  const filteredMeals = rawMeals.filter((m) => {
+    if (startDate && m.meal_date < startDate) return false;
+    if (endDate && m.meal_date > endDate) return false;
+    return true;
+  });
+
+  const filteredDeposits = deposits.filter((d) => {
+    if (startDate && d.deposit_date < startDate) return false;
+    if (endDate && d.deposit_date > endDate) return false;
+    return true;
+  });
+
+  // Calculate daily grouped meals
+  const dailyMealMap = new Map<
+    string,
+    { lunch: number; dinner: number; cost: number; unit_price: number }
+  >();
+
+  for (const m of filteredMeals) {
+    const existing = dailyMealMap.get(m.meal_date) || { lunch: 0, dinner: 0, cost: 0, unit_price: m.unit_price };
+    if (m.session === "lunch") existing.lunch += m.quantity;
+    if (m.session === "dinner") existing.dinner += m.quantity;
+    existing.cost += m.quantity * m.unit_price;
+    existing.unit_price = m.unit_price;
+    dailyMealMap.set(m.meal_date, existing);
+  }
+
+  const dailyMeals = Array.from(dailyMealMap.entries())
+    .map(([date, data]) => ({
+      meal_date: date,
+      day_name: getWeekdayName(date),
+      is_friday: isFridayDate(date),
+      lunch: data.lunch,
+      dinner: data.dinner,
+      total_meals: data.lunch + data.dinner,
+      unit_price: data.unit_price,
+      cost: data.cost,
+    }))
+    .sort((a, b) => b.meal_date.localeCompare(a.meal_date));
+
+  // Lifetime metrics
+  const totalLifetimeDeposited = deposits.reduce((acc, d) => acc + d.amount, 0);
+  const totalLifetimeMealCost = rawMeals.reduce(
+    (acc, m) => acc + (m.quantity > 0 ? m.quantity * m.unit_price : 0),
+    0
+  );
+  const currentBalance = totalLifetimeDeposited - totalLifetimeMealCost;
+
+  let totalLunch = 0;
+  let totalDinner = 0;
+  for (const m of filteredMeals) {
+    if (m.session === "lunch") totalLunch += m.quantity;
+    if (m.session === "dinner") totalDinner += m.quantity;
+  }
+
+  const periodCost = filteredMeals.reduce((acc, m) => acc + m.quantity * m.unit_price, 0);
+  const periodDeposited = filteredDeposits.reduce((acc, d) => acc + d.amount, 0);
+
+  return {
+    member,
+    summary: {
+      total_meals: totalLunch + totalDinner,
+      total_lunch: totalLunch,
+      total_dinner: totalDinner,
+      total_meal_cost: periodCost,
+      total_deposited: periodDeposited,
+      balance: currentBalance,
+    },
+    dailyMeals,
+    deposits: filteredDeposits,
+  };
+}
+
+/**
+ * 19. Group Aggregate Ledger (Strictly excludes individual member details)
+ */
+export async function getGroupAggregateLedger(
+  supabase: SupabaseClient,
+  startDate?: string,
+  endDate?: string
+): Promise<GroupAggregateReport> {
+  // First try the secure PostgreSQL SECURITY DEFINER function
+  const { data: rpcData, error: rpcErr } = await supabase.rpc("get_group_aggregate_ledger", {
+    p_start_date: startDate || null,
+    p_end_date: endDate || null,
+  });
+
+  if (!rpcErr && rpcData) {
+    return rpcData as GroupAggregateReport;
+  }
+
+  // Fallback if RPC is not yet executed in database (computes aggregate totals without member names)
+  const [mealsRes, depositsRes, membersRes] = await Promise.all([
+    supabase.from("meal_entries").select("meal_date, session, quantity, unit_price"),
+    supabase.from("deposits").select("deposit_date, amount"),
+    supabase.from("members").select("id, status"),
+  ]);
+
+  const meals = (mealsRes.data || []).map((m) => ({
+    ...m,
+    quantity: Number(m.quantity),
+    unit_price: Number(m.unit_price),
+  }));
+  const deposits = (depositsRes.data || []).map((d) => ({
+    ...d,
+    amount: Number(d.amount),
+  }));
+
+  const activeCount = (membersRes.data || []).filter((m) => m.status === "active").length;
+
+  const datesMap = new Map<
+    string,
+    { lunch_count: number; dinner_count: number; total_meals: number; total_cost: number; total_deposit: number }
+  >();
+
+  for (const m of meals) {
+    if (startDate && m.meal_date < startDate) continue;
+    if (endDate && m.meal_date > endDate) continue;
+    if (m.quantity <= 0) continue;
+
+    const row = datesMap.get(m.meal_date) || { lunch_count: 0, dinner_count: 0, total_meals: 0, total_cost: 0, total_deposit: 0 };
+    if (m.session === "lunch") row.lunch_count += m.quantity;
+    if (m.session === "dinner") row.dinner_count += m.quantity;
+    row.total_meals += m.quantity;
+    row.total_cost += m.quantity * m.unit_price;
+    datesMap.set(m.meal_date, row);
+  }
+
+  for (const d of deposits) {
+    if (startDate && d.deposit_date < startDate) continue;
+    if (endDate && d.deposit_date > endDate) continue;
+
+    const row = datesMap.get(d.deposit_date) || { lunch_count: 0, dinner_count: 0, total_meals: 0, total_cost: 0, total_deposit: 0 };
+    row.total_deposit += d.amount;
+    datesMap.set(d.deposit_date, row);
+  }
+
+  const daily_rows = Array.from(datesMap.entries())
+    .map(([date, d]) => ({
+      meal_date: date,
+      day_name: getWeekdayName(date),
+      is_friday: isFridayDate(date),
+      ...d,
+    }))
+    .sort((a, b) => b.meal_date.localeCompare(a.meal_date));
+
+  const totalPeriodMeals = daily_rows.reduce((acc, r) => acc + r.total_meals, 0);
+  const totalPeriodLunch = daily_rows.reduce((acc, r) => acc + r.lunch_count, 0);
+  const totalPeriodDinner = daily_rows.reduce((acc, r) => acc + r.dinner_count, 0);
+  const totalPeriodCost = daily_rows.reduce((acc, r) => acc + r.total_cost, 0);
+  const totalPeriodDeposit = daily_rows.reduce((acc, r) => acc + r.total_deposit, 0);
+
+  const totalLifetimeDeposits = deposits.reduce((acc, d) => acc + d.amount, 0);
+  const totalLifetimeExpenses = meals.reduce((acc, m) => acc + (m.quantity > 0 ? m.quantity * m.unit_price : 0), 0);
+
+  return {
+    period: {
+      startDate,
+      endDate,
+      total_meals: totalPeriodMeals,
+      total_lunch: totalPeriodLunch,
+      total_dinner: totalPeriodDinner,
+      total_cost: totalPeriodCost,
+      total_deposit: totalPeriodDeposit,
+    },
+    lifetime: {
+      total_deposits: totalLifetimeDeposits,
+      total_expenses: totalLifetimeExpenses,
+      balance: totalLifetimeDeposits - totalLifetimeExpenses,
+      active_members_count: activeCount,
+    },
+    daily_rows,
+  };
 }

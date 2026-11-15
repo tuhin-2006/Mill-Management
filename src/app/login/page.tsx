@@ -61,7 +61,7 @@ export default function LoginPage() {
       }
 
       if (data.session) {
-        toast.success("Welcome back, Administrator!");
+        toast.success("Welcome back! Redirecting to your dashboard...");
         router.push("/");
         router.refresh();
       }
@@ -86,7 +86,7 @@ export default function LoginPage() {
             {siteConfig.name}
           </h1>
           <p className="text-xs text-muted-foreground mt-1">
-            Private Administrator Authentication
+            Personal Mill Management Portal
           </p>
         </div>
 
@@ -95,7 +95,7 @@ export default function LoginPage() {
           <CardHeader className="space-y-1 pb-4">
             <CardTitle className="text-base">Sign In</CardTitle>
             <CardDescription>
-              Enter your administrator credentials to access financial records
+              Enter your email and password to access your mill account
             </CardDescription>
           </CardHeader>
           <CardContent>

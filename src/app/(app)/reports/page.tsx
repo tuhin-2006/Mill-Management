@@ -9,10 +9,12 @@ import { createClient } from "@/lib/supabase/client";
 import {
   getDailyLedger,
   getGroupSummary,
+  getCurrentUserProfile,
+  getGroupAggregateLedger,
 } from "@/lib/services";
 import { formatBDT, getTodayInDhaka } from "@/lib/date";
 import { downloadCSV } from "@/lib/csv";
-import { DailyLedgerRow, MemberSummary } from "@/types";
+import { DailyLedgerRow, MemberSummary, UserRole } from "@/types";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,12 +23,14 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
 export default function ReportsPage() {
+  const [userRole, setUserRole] = React.useState<UserRole>("admin");
   const [ledgerRows, setLedgerRows] = React.useState<DailyLedgerRow[]>([]);
   const [memberSummaries, setMemberSummaries] = React.useState<MemberSummary[]>([]);
+  const [groupLifetimeDeposits, setGroupLifetimeDeposits] = React.useState(0);
+  const [groupLifetimeExpenses, setGroupLifetimeExpenses] = React.useState(0);
 
   // Filter range
   const today = getTodayInDhaka();
-  // Default to this month: 1st of current month to today
   const firstDayOfMonth = today.slice(0, 8) + "01";
   const [startDate, setStartDate] = React.useState(firstDayOfMonth);
   const [endDate, setEndDate] = React.useState(today);
@@ -35,13 +39,37 @@ export default function ReportsPage() {
     async function fetchReportData() {
       try {
         const supabase = createClient();
-        const [ledgerData, summaryData] = await Promise.all([
-          getDailyLedger(supabase, startDate || undefined, endDate || undefined),
-          getGroupSummary(supabase),
-        ]);
+        const profile = await getCurrentUserProfile(supabase);
+        const role = profile?.role || "admin";
+        setUserRole(role);
 
-        setLedgerRows(ledgerData);
-        setMemberSummaries(summaryData.member_summaries);
+        if (role === "group_ledger_viewer") {
+          // Strictly aggregate-only query for Group Ledger Viewer
+          const agg = await getGroupAggregateLedger(supabase, startDate || undefined, endDate || undefined);
+          const mappedRows: DailyLedgerRow[] = agg.daily_rows.map((r) => ({
+            meal_date: r.meal_date,
+            day_name: r.day_name,
+            is_friday: r.is_friday,
+            lunch_count: r.lunch_count,
+            dinner_count: r.dinner_count,
+            total_meals: r.total_meals,
+            total_cost: r.total_cost,
+            active_members_ate: 0,
+          }));
+          setLedgerRows(mappedRows);
+          setGroupLifetimeDeposits(agg.lifetime.total_deposits);
+          setGroupLifetimeExpenses(agg.lifetime.total_expenses);
+        } else {
+          const [ledgerData, summaryData] = await Promise.all([
+            getDailyLedger(supabase, startDate || undefined, endDate || undefined),
+            getGroupSummary(supabase),
+          ]);
+
+          setLedgerRows(ledgerData);
+          setMemberSummaries(summaryData.member_summaries);
+          setGroupLifetimeDeposits(summaryData.total_group_deposit);
+          setGroupLifetimeExpenses(summaryData.total_group_expense);
+        }
       } catch (err: unknown) {
         toast.error("Failed to load report data: " + (err instanceof Error ? err.message : ""));
       }
@@ -56,9 +84,9 @@ export default function ReportsPage() {
   const totalDinner = ledgerRows.reduce((acc, r) => acc + r.dinner_count, 0);
   const totalMealExpense = ledgerRows.reduce((acc, r) => acc + r.total_cost, 0);
 
-  // Total deposits across all time
-  const totalDeposits = memberSummaries.reduce((acc, m) => acc + m.total_deposited, 0);
-  const totalNetBalance = totalDeposits - memberSummaries.reduce((acc, m) => acc + m.total_meal_cost, 0);
+  // Group balance
+  const totalDeposits = groupLifetimeDeposits;
+  const totalNetBalance = groupLifetimeDeposits - groupLifetimeExpenses;
 
   // Export Complete Report CSV
   const handleExportFullCSV = () => {
@@ -131,15 +159,17 @@ export default function ReportsPage() {
         description="Comprehensive expense analysis, monthly statistics, and audit reports."
         actions={
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExportMemberBalancesCSV}
-              className="gap-2 text-xs flex-1 sm:flex-initial h-9"
-            >
-              <FileSpreadsheet className="h-4 w-4" />
-              <span>Export Member Balances</span>
-            </Button>
+            {userRole === "admin" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportMemberBalancesCSV}
+                className="gap-2 text-xs flex-1 sm:flex-initial h-9"
+              >
+                <FileSpreadsheet className="h-4 w-4" />
+                <span>Export Member Balances</span>
+              </Button>
+            )}
             <Button
               variant="primary"
               size="sm"
@@ -246,89 +276,126 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* Member Financial Totals Table */}
+      {/* Member Financial Totals Table (Admin Only) */}
+      {userRole === "admin" && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-semibold">Member Financial Standing (All-Time Audit)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="text-xs uppercase bg-muted/50 text-muted-foreground border-b border-border">
+                  <tr>
+                    <th className="py-3 px-4">Member</th>
+                    <th className="py-3 px-4 text-center">Meals Eaten</th>
+                    <th className="py-3 px-4 text-right">Total Meal Cost</th>
+                    <th className="py-3 px-4 text-right">Total Deposited</th>
+                    <th className="py-3 px-4 text-right">Current Balance</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {memberSummaries.map((m) => (
+                    <tr key={m.id} className="hover:bg-muted/30 transition-colors">
+                      <td className="py-3 px-4 font-semibold text-foreground">{m.name}</td>
+                      <td className="py-3 px-4 text-center font-medium">{m.total_meals}</td>
+                      <td className="py-3 px-4 text-right text-muted-foreground">
+                        {formatBDT(m.total_meal_cost)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-medium text-emerald-600 dark:text-emerald-400">
+                        {formatBDT(m.total_deposited)}
+                      </td>
+                      <td
+                        className={`py-3 px-4 text-right font-bold ${
+                          m.balance >= 0
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-destructive"
+                        }`}
+                      >
+                        {formatBDT(m.balance)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Phone Cards View */}
+            <div className="md:hidden space-y-2.5">
+              {memberSummaries.map((m) => {
+                const isPositive = m.balance >= 0;
+                return (
+                  <div
+                    key={m.id}
+                    className="p-3.5 rounded-xl border border-border bg-card/60 shadow-2xs space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-foreground text-sm">{m.name}</span>
+                      <span
+                        className={`text-sm font-bold ${
+                          isPositive
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-destructive"
+                        }`}
+                      >
+                        {formatBDT(m.balance)}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-1.5 p-2 rounded-lg bg-muted/40 text-xs text-center border border-border/40">
+                      <div>
+                        <span className="text-[10px] text-muted-foreground block">Meals</span>
+                        <span className="font-semibold text-foreground">{m.total_meals}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-muted-foreground block">Cost</span>
+                        <span className="font-semibold text-muted-foreground">{formatBDT(m.total_meal_cost)}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-muted-foreground block">Deposited</span>
+                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">{formatBDT(m.total_deposited)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Aggregate Daily Table (Viewer & Admin) */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold">Member Financial Standing (All-Time Audit)</CardTitle>
+          <CardTitle className="text-base font-semibold">Daily Meal Ledger Audit (Period Log)</CardTitle>
         </CardHeader>
         <CardContent>
-          {/* Desktop Table View */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="text-xs uppercase bg-muted/50 text-muted-foreground border-b border-border">
-                <tr>
-                  <th className="py-3 px-4">Member</th>
-                  <th className="py-3 px-4 text-center">Meals Eaten</th>
-                  <th className="py-3 px-4 text-right">Total Meal Cost</th>
-                  <th className="py-3 px-4 text-right">Total Deposited</th>
-                  <th className="py-3 px-4 text-right">Current Balance</th>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead>
+                <tr className="border-b border-border text-muted-foreground uppercase text-[10px] font-semibold">
+                  <th className="py-2.5 px-3">Date</th>
+                  <th className="py-2.5 px-3">Day</th>
+                  <th className="py-2.5 px-3 text-center">Lunch</th>
+                  <th className="py-2.5 px-3 text-center">Dinner</th>
+                  <th className="py-2.5 px-3 text-center">Total Meals</th>
+                  <th className="py-2.5 px-3 text-right">Total Cost</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
-                {memberSummaries.map((m) => (
-                  <tr key={m.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="py-3 px-4 font-semibold text-foreground">{m.name}</td>
-                    <td className="py-3 px-4 text-center font-medium">{m.total_meals}</td>
-                    <td className="py-3 px-4 text-right text-muted-foreground">
-                      {formatBDT(m.total_meal_cost)}
-                    </td>
-                    <td className="py-3 px-4 text-right font-medium text-emerald-600 dark:text-emerald-400">
-                      {formatBDT(m.total_deposited)}
-                    </td>
-                    <td
-                      className={`py-3 px-4 text-right font-bold ${
-                        m.balance >= 0
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : "text-destructive"
-                      }`}
-                    >
-                      {formatBDT(m.balance)}
-                    </td>
+              <tbody className="divide-y divide-border/60">
+                {ledgerRows.map((r) => (
+                  <tr key={r.meal_date} className="hover:bg-muted/30 transition-colors">
+                    <td className="py-2.5 px-3 font-medium text-foreground">{r.meal_date}</td>
+                    <td className="py-2.5 px-3 text-muted-foreground">{r.day_name}</td>
+                    <td className="py-2.5 px-3 text-center">{r.lunch_count}</td>
+                    <td className="py-2.5 px-3 text-center">{r.dinner_count}</td>
+                    <td className="py-2.5 px-3 text-center font-bold text-foreground">{r.total_meals}</td>
+                    <td className="py-2.5 px-3 text-right font-bold text-foreground">{formatBDT(r.total_cost)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-
-          {/* Mobile Phone Cards View */}
-          <div className="md:hidden space-y-2.5">
-            {memberSummaries.map((m) => {
-              const isPositive = m.balance >= 0;
-              return (
-                <div
-                  key={m.id}
-                  className="p-3.5 rounded-xl border border-border bg-card/60 shadow-2xs space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-foreground text-sm">{m.name}</span>
-                    <span
-                      className={`text-sm font-bold ${
-                        isPositive
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : "text-destructive"
-                      }`}
-                    >
-                      {formatBDT(m.balance)}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-1.5 p-2 rounded-lg bg-muted/40 text-xs text-center border border-border/40">
-                    <div>
-                      <span className="text-[10px] text-muted-foreground block">Meals</span>
-                      <span className="font-semibold text-foreground">{m.total_meals}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-muted-foreground block">Cost</span>
-                      <span className="font-semibold text-muted-foreground">{formatBDT(m.total_meal_cost)}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-muted-foreground block">Deposited</span>
-                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">{formatBDT(m.total_deposited)}</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
           </div>
         </CardContent>
       </Card>

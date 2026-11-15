@@ -7,6 +7,9 @@ import {
   DollarSign,
   ShieldAlert,
   Info,
+  Mail,
+  Clock,
+  CheckCircle2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { getSettings, updateSettings } from "@/lib/services";
@@ -23,6 +26,7 @@ export default function SettingsPage() {
   const [fridayMealPrice, setFridayMealPrice] = React.useState("120");
   const [currency, setCurrency] = React.useState("BDT");
   const [timezone, setTimezone] = React.useState("Asia/Dhaka");
+  const [groupLedgerViewerEmail, setGroupLedgerViewerEmail] = React.useState("");
   const [isSavingSettings, setIsSavingSettings] = React.useState(false);
 
   // Password change state
@@ -41,6 +45,7 @@ export default function SettingsPage() {
         setFridayMealPrice(String(data.friday_meal_price ?? 120));
         setCurrency(data.currency);
         setTimezone(data.timezone);
+        setGroupLedgerViewerEmail(data.group_ledger_viewer_email || "");
       } catch (err: unknown) {
         toast.error("Failed to load settings: " + (err instanceof Error ? err.message : ""));
       }
@@ -72,6 +77,7 @@ export default function SettingsPage() {
         friday_meal_price: fridayPriceNum,
         currency: currency.trim() || "BDT",
         timezone: timezone.trim() || "Asia/Dhaka",
+        group_ledger_viewer_email: groupLedgerViewerEmail.trim() || null,
       });
 
       toast.success("Settings updated successfully!");
@@ -217,6 +223,23 @@ export default function SettingsPage() {
                 </div>
               </div>
 
+              <div className="space-y-1.5 pt-2 border-t border-border/60">
+                <Label htmlFor="group-viewer-email" className="flex items-center gap-1.5">
+                  <Mail className="h-3.5 w-3.5 text-primary" />
+                  <span>Group Ledger Viewer Recipient Email</span>
+                </Label>
+                <Input
+                  id="group-viewer-email"
+                  type="email"
+                  placeholder="e.g. viewer@gmail.com"
+                  value={groupLedgerViewerEmail}
+                  onChange={(e) => setGroupLedgerViewerEmail(e.target.value)}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Receives aggregate-only weekly summaries (Total meals, expenses, deposits, treasury balance). Strictly excludes individual member names and private account balances.
+                </p>
+              </div>
+
               <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
                 <span className="font-semibold text-foreground">
                   Friday Meal Rule:
@@ -298,6 +321,64 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Weekly Email Reporting Information Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Mail className="h-4 w-4 text-primary" />
+            <span>Weekly Gmail Reporting Engine</span>
+          </CardTitle>
+          <CardDescription>
+            Free automated weekly meal statements powered by Google Apps Script and Supabase
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="p-3 rounded-lg border border-border bg-muted/20">
+              <span className="text-xs text-muted-foreground block">Email Service</span>
+              <span className="font-semibold text-foreground text-sm flex items-center gap-1.5 mt-0.5">
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                Google Apps Script (MailApp)
+              </span>
+              <span className="text-[11px] text-muted-foreground block mt-1">
+                Cost: ৳0.00 / Zero-cost free Gmail
+              </span>
+            </div>
+
+            <div className="p-3 rounded-lg border border-border bg-muted/20">
+              <span className="text-xs text-muted-foreground block">Weekly Dispatch Schedule</span>
+              <span className="font-semibold text-foreground text-sm flex items-center gap-1.5 mt-0.5">
+                <Clock className="h-4 w-4 text-primary" />
+                Every Friday Evening
+              </span>
+              <span className="text-[11px] text-muted-foreground block mt-1">
+                Timezone: Asia/Dhaka (8:00 PM)
+              </span>
+            </div>
+
+            <div className="p-3 rounded-lg border border-border bg-muted/20">
+              <span className="text-xs text-muted-foreground block">Automatic Schedule State</span>
+              <span className="font-semibold text-amber-600 dark:text-amber-400 text-sm flex items-center gap-1.5 mt-0.5">
+                <ShieldAlert className="h-4 w-4" />
+                Safety Lock Active
+              </span>
+              <span className="text-[11px] text-muted-foreground block mt-1">
+                Awaiting your approval before auto-sending
+              </span>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-border/80 bg-muted/30 p-3 text-xs text-muted-foreground space-y-1.5">
+            <p className="font-medium text-foreground">
+              Setup Instructions & Secret Keys:
+            </p>
+            <p className="leading-relaxed">
+              Google Apps Script connects to Supabase Edge Function via a private shared secret (<code className="px-1 py-0.5 rounded bg-muted font-mono text-[11px]">REPORT_SHARED_SECRET</code>) stored securely in Google Apps Script Script Properties. No sensitive database keys are ever exposed in frontend client code.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

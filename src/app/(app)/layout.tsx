@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUserProfile } from "@/lib/services";
 import { AppShell } from "@/components/layout/app-shell";
 
 export default async function AppLayout({
@@ -7,6 +9,10 @@ export default async function AppLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  let userRole: "admin" | "member" | "group_ledger_viewer" = "admin";
+  let userEmail: string | undefined;
+  let memberName: string | undefined;
+
   try {
     const supabase = await createClient();
     const {
@@ -15,6 +21,29 @@ export default async function AppLayout({
 
     if (!user) {
       redirect("/login");
+    }
+
+    userEmail = user.email;
+    const profile = await getCurrentUserProfile(supabase);
+    if (profile) {
+      userRole = profile.role;
+      memberName = profile.member_name;
+    }
+
+    // Server-Side Role Route Guard
+    const headerList = await headers();
+    const pathname = headerList.get("x-pathname") || "";
+
+    if (userRole === "member") {
+      const allowedMemberPaths = ["/", "/my-meals", "/my-deposits", "/my-statement"];
+      if (pathname && !allowedMemberPaths.includes(pathname)) {
+        redirect("/");
+      }
+    } else if (userRole === "group_ledger_viewer") {
+      const allowedViewerPaths = ["/", "/reports"];
+      if (pathname && !allowedViewerPaths.includes(pathname)) {
+        redirect("/");
+      }
     }
   } catch (err: unknown) {
     // If it is the Next.js redirect throw, rethrow it so Next.js redirects
@@ -31,12 +60,20 @@ export default async function AppLayout({
     // If Supabase environment variables are missing during initial setup, allow access to view setup status
     const message = err instanceof Error ? err.message : "";
     if (message.includes("Missing Supabase environment variables")) {
-      return <AppShell>{children}</AppShell>;
+      return <AppShell userRole="admin">{children}</AppShell>;
     }
 
     // Otherwise redirect to login for security
     redirect("/login");
   }
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <AppShell
+      userRole={userRole}
+      userEmail={userEmail}
+      memberName={memberName}
+    >
+      {children}
+    </AppShell>
+  );
 }

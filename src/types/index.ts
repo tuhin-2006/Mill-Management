@@ -7,6 +7,16 @@ export type Nullable<T> = T | null;
 export type MealSession = "lunch" | "dinner";
 export type MemberStatus = "active" | "inactive";
 
+export type UserRole = "admin" | "member" | "group_ledger_viewer";
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  role: UserRole;
+  member_id?: string | null;
+  created_at: string;
+}
+
 export interface Settings {
   id: number;
   app_name: string;
@@ -15,6 +25,7 @@ export interface Settings {
   currency: string;
   timezone: string;
   friday_dinner_disabled: boolean;
+  group_ledger_viewer_email?: string | null;
   updated_at: string;
 }
 
@@ -22,6 +33,8 @@ export interface Member {
   id: string;
   name: string;
   status: MemberStatus;
+  email?: string | null;
+  user_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -159,4 +172,80 @@ export interface PeriodLedgerReport {
   dailyRows: DailyLedgerRow[];
   memberStatements: PeriodMemberStatement[];
 }
+
+export type EmailDeliveryStatus = "sent" | "failed" | "skipped_duplicate";
+export type EmailRecipientType = "member" | "group_viewer" | "test";
+
+export interface EmailLog {
+  id: string;
+  report_period_start: string;
+  report_period_end: string;
+  recipient_type: EmailRecipientType;
+  recipient_email: string;
+  member_id?: string | null;
+  status: EmailDeliveryStatus;
+  error_message?: string | null;
+  metadata?: Record<string, unknown>;
+  sent_at: string;
+  created_at: string;
+  member?: Member;
+}
+
+export interface GroupAggregateReport {
+  period: {
+    startDate?: string | null;
+    endDate?: string | null;
+    total_meals: number;
+    total_lunch: number;
+    total_dinner: number;
+    total_cost: number;
+    total_deposit: number;
+  };
+  lifetime: {
+    total_deposits: number;
+    total_expenses: number;
+    balance: number;
+    active_members_count: number;
+  };
+  daily_rows: Array<{
+    meal_date: string;
+    day_name: string;
+    is_friday: boolean;
+    lunch_count: number;
+    dinner_count: number;
+    total_meals: number;
+    total_cost: number;
+    total_deposit: number;
+  }>;
+}
+
+export interface MemberPersonalStatement {
+  member: Member;
+  summary: {
+    total_meals: number;
+    total_lunch: number;
+    total_dinner: number;
+    total_meal_cost: number;
+    total_deposited: number;
+    balance: number;
+  };
+  dailyMeals: Array<{
+    meal_date: string;
+    day_name: string;
+    is_friday: boolean;
+    lunch: number;
+    dinner: number;
+    total_meals: number;
+    unit_price: number;
+    cost: number;
+  }>;
+  deposits: Array<{
+    id: string;
+    amount: number;
+    deposit_date: string;
+    note?: string | null;
+  }>;
+}
+
+
 
