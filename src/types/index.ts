@@ -29,6 +29,7 @@ export interface Settings {
   auto_email_enabled?: boolean;
   weekly_report_day?: string;
   weekly_report_time?: string;
+  gas_web_app_url?: string | null;
   updated_at: string;
 }
 

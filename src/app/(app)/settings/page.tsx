@@ -9,11 +9,11 @@ import {
   Info,
   Mail,
   Clock,
-  CheckCircle2,
   Eye,
   EyeOff,
   UserCheck,
   ShieldCheck,
+  Send,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { getSettings, updateSettings } from "@/lib/services";
@@ -35,13 +35,17 @@ export default function SettingsPage() {
   const [weeklyReportTime, setWeeklyReportTime] = React.useState("20:00");
   const [isSavingSettings, setIsSavingSettings] = React.useState(false);
 
-  // Viewer credentials state
-  const [viewerEmail, setViewerEmail] = React.useState("");
-  const [viewerPassword, setViewerPassword] = React.useState("");
-  const [showViewerPassword, setShowViewerPassword] = React.useState(false);
-  const [isUpdatingViewer, setIsUpdatingViewer] = React.useState(false);
+  // 1. Separate: Viewer Report Destination Email (যে মেইলে রিপোর্ট পাঠানো হবে)
+  const [viewerReportEmail, setViewerReportEmail] = React.useState("");
+  const [isSavingViewerReportEmail, setIsSavingViewerReportEmail] = React.useState(false);
 
-  // Admin credentials state
+  // 2. Separate: Viewer Login Account Credentials (ওয়েবসাইটে লগইন করার ইউজারনেম ও পাসওয়ার্ড)
+  const [viewerLoginUsername, setViewerLoginUsername] = React.useState("viewer@mill.local");
+  const [viewerLoginPassword, setViewerLoginPassword] = React.useState("");
+  const [showViewerPassword, setShowViewerPassword] = React.useState(false);
+  const [isUpdatingViewerLogin, setIsUpdatingViewerLogin] = React.useState(false);
+
+  // 3. Separate: Administrator Account Credentials
   const [adminEmail, setAdminEmail] = React.useState("");
   const [adminNewPassword, setAdminNewPassword] = React.useState("");
   const [adminConfirmPassword, setAdminConfirmPassword] = React.useState("");
@@ -54,9 +58,10 @@ export default function SettingsPage() {
     async function loadData() {
       try {
         const supabase = createClient();
-        const [settingsData, authRes] = await Promise.all([
+        const [settingsData, authRes, viewerProfileRes] = await Promise.all([
           getSettings(supabase),
           supabase.auth.getUser(),
+          supabase.from("profiles").select("email").eq("role", "group_ledger_viewer").limit(1).maybeSingle(),
         ]);
 
         setAppName(settingsData.app_name);
@@ -64,10 +69,14 @@ export default function SettingsPage() {
         setFridayMealPrice(String(settingsData.friday_meal_price ?? 120));
         setCurrency(settingsData.currency);
         setTimezone(settingsData.timezone);
-        setViewerEmail(settingsData.group_ledger_viewer_email || "viewer@mill.local");
+        setViewerReportEmail(settingsData.group_ledger_viewer_email || "");
         setAutoEmailEnabled(Boolean(settingsData.auto_email_enabled));
         setWeeklyReportDay(settingsData.weekly_report_day || "Friday");
         setWeeklyReportTime(settingsData.weekly_report_time || "20:00");
+
+        if (viewerProfileRes.data?.email) {
+          setViewerLoginUsername(viewerProfileRes.data.email);
+        }
 
         if (authRes.data.user) {
           setAdminUserId(authRes.data.user.id);
@@ -104,13 +113,12 @@ export default function SettingsPage() {
         friday_meal_price: fridayPriceNum,
         currency: currency.trim() || "BDT",
         timezone: timezone.trim() || "Asia/Dhaka",
-        group_ledger_viewer_email: viewerEmail.trim() || null,
         auto_email_enabled: autoEmailEnabled,
         weekly_report_day: weeklyReportDay,
         weekly_report_time: weeklyReportTime,
       });
 
-      toast.success("System configuration & email schedule saved successfully!");
+      toast.success("Meal rates and schedule saved successfully!");
     } catch (err: unknown) {
       toast.error("Failed to save settings: " + (err instanceof Error ? err.message : ""));
     } finally {
@@ -118,49 +126,63 @@ export default function SettingsPage() {
     }
   };
 
-  // Update Group Ledger Viewer Credentials
-  const handleUpdateViewerCredentials = async (e: React.FormEvent) => {
+  // 1. Save Group Ledger Viewer Report Email (আলাদা: যেখানে রিপোর্ট যাবে)
+  const handleSaveViewerReportEmail = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!viewerEmail.trim()) {
-      toast.error("Viewer username / email cannot be empty.");
+    try {
+      setIsSavingViewerReportEmail(true);
+      const supabase = createClient();
+      await updateSettings(supabase, {
+        group_ledger_viewer_email: viewerReportEmail.trim() || null,
+      });
+
+      toast.success("Viewer report destination email saved successfully!");
+    } catch (err: unknown) {
+      toast.error("Failed to save viewer report email: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setIsSavingViewerReportEmail(false);
+    }
+  };
+
+  // 2. Save Group Ledger Viewer Login Username & Password (আলাদা: ওয়েবসাইটে লগইন করার ইউজারনেম ও পাসওয়ার্ড)
+  const handleUpdateViewerLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!viewerLoginUsername.trim()) {
+      toast.error("Viewer login username / email is required.");
       return;
     }
-    if (viewerPassword && viewerPassword.length < 6) {
-      toast.error("Viewer password must be at least 6 characters long.");
+    if (viewerLoginPassword && viewerLoginPassword.length < 6) {
+      toast.error("Password must be at least 6 characters long.");
       return;
     }
 
     try {
-      setIsUpdatingViewer(true);
+      setIsUpdatingViewerLogin(true);
       const res = await fetch("/api/admin/provision-user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: viewerEmail.trim(),
-          password: viewerPassword || undefined,
+          email: viewerLoginUsername.trim(),
+          password: viewerLoginPassword || undefined,
           role: "group_ledger_viewer",
         }),
       });
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Failed to update viewer credentials.");
+        throw new Error(data.error || "Failed to update viewer login account.");
       }
 
-      // Also persist to settings.group_ledger_viewer_email
-      const supabase = createClient();
-      await updateSettings(supabase, { group_ledger_viewer_email: viewerEmail.trim() });
-
-      toast.success("Group Ledger Viewer credentials updated successfully!");
-      setViewerPassword("");
+      toast.success(`Viewer login account (${viewerLoginUsername}) updated successfully!`);
+      setViewerLoginPassword("");
     } catch (err: unknown) {
-      toast.error("Failed to update viewer: " + (err instanceof Error ? err.message : ""));
+      toast.error("Failed to update viewer login: " + (err instanceof Error ? err.message : ""));
     } finally {
-      setIsUpdatingViewer(false);
+      setIsUpdatingViewerLogin(false);
     }
   };
 
-  // Update Admin Account & Password
+  // 3. Save Admin Account Credentials
   const handleUpdateAdminCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
     if (adminNewPassword && adminNewPassword.length < 6) {
@@ -190,7 +212,7 @@ export default function SettingsPage() {
         throw new Error(data.error || "Failed to update administrator account.");
       }
 
-      toast.success("Administrator account credentials updated successfully!");
+      toast.success("Administrator login credentials updated successfully!");
       setAdminNewPassword("");
       setAdminConfirmPassword("");
     } catch (err: unknown) {
@@ -204,7 +226,7 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Settings & System Configuration"
-        description="Configure meal rates, email reporting schedule, and user authentication credentials."
+        description="Configure meal rates, email reporting schedule, and separate notification emails from login accounts."
       />
 
       {/* Historical Integrity Info Note */}
@@ -231,10 +253,10 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <DollarSign className="h-4 w-4 text-primary" />
-              <span>Meal Rates & Automated Email Schedule</span>
+              <span>Meal Rates & Automated Schedule</span>
             </CardTitle>
             <CardDescription>
-              Default rate applied to meal entries and scheduled report timing
+              Unit rates applied to meal records and weekly report timing
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -251,7 +273,7 @@ export default function SettingsPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="meal-price">Regular Meal Price (শনি–বৃহস্পতি) (৳)</Label>
+                  <Label htmlFor="meal-price">Regular Meal Price (Sat–Thu) (৳)</Label>
                   <Input
                     id="meal-price"
                     type="number"
@@ -267,7 +289,7 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="friday-meal-price">Friday Meal Price (শুক্রবার দুপুর) (৳)</Label>
+                  <Label htmlFor="friday-meal-price">Friday Meal Price (Fri Lunch) (৳)</Label>
                   <Input
                     id="friday-meal-price"
                     type="number"
@@ -310,10 +332,10 @@ export default function SettingsPage() {
                   <div className="space-y-0.5">
                     <Label className="text-sm font-semibold text-foreground flex items-center gap-1.5">
                       <Clock className="h-4 w-4 text-primary" />
-                      <span>Automatic Email Reports (স্বয়ংক্রিয় সাপ্তাহিক ইমেইল)</span>
+                      <span>Automatic Email Reports</span>
                     </Label>
                     <p className="text-[11px] text-muted-foreground">
-                      Dispatches weekly HTML statements via Google Apps Script.
+                      Master toggle for scheduled weekly email delivery.
                     </p>
                   </div>
 
@@ -334,11 +356,10 @@ export default function SettingsPage() {
                   </button>
                 </div>
 
-                {/* Day of Week & Time Selectors */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                   <div className="space-y-1">
                     <Label htmlFor="report-day" className="text-xs font-semibold text-muted-foreground">
-                      Dispatch Day (পাঠানোর দিন)
+                      Dispatch Day
                     </Label>
                     <select
                       id="report-day"
@@ -346,19 +367,19 @@ export default function SettingsPage() {
                       onChange={(e) => setWeeklyReportDay(e.target.value)}
                       className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     >
-                      <option value="Friday">Friday (শুক্রবার - Default)</option>
-                      <option value="Thursday">Thursday (বৃহস্পতিবার)</option>
-                      <option value="Saturday">Saturday (শনিবার)</option>
-                      <option value="Sunday">Sunday (রবিবার)</option>
-                      <option value="Monday">Monday (সোমবার)</option>
-                      <option value="Tuesday">Tuesday (মঙ্গলবার)</option>
-                      <option value="Wednesday">Wednesday (বুধবার)</option>
+                      <option value="Friday">Friday (Default)</option>
+                      <option value="Thursday">Thursday</option>
+                      <option value="Saturday">Saturday</option>
+                      <option value="Sunday">Sunday</option>
+                      <option value="Monday">Monday</option>
+                      <option value="Tuesday">Tuesday</option>
+                      <option value="Wednesday">Wednesday</option>
                     </select>
                   </div>
 
                   <div className="space-y-1">
                     <Label htmlFor="report-time" className="text-xs font-semibold text-muted-foreground">
-                      Dispatch Time (সময়)
+                      Dispatch Time (Asia/Dhaka)
                     </Label>
                     <Input
                       id="report-time"
@@ -385,7 +406,7 @@ export default function SettingsPage() {
                     />
                     <span>
                       {autoEmailEnabled
-                        ? `ACTIVE — Will dispatch every ${weeklyReportDay} at ${weeklyReportTime}`
+                        ? `ACTIVE — Dispatches every ${weeklyReportDay} at ${weeklyReportTime}`
                         : "PAUSED — Safety lock active (No emails sent automatically)"}
                     </span>
                   </span>
@@ -395,7 +416,7 @@ export default function SettingsPage() {
               <div className="flex justify-end pt-2">
                 <Button type="submit" variant="primary" isLoading={isSavingSettings} className="gap-2 w-full sm:w-auto h-10 sm:h-9">
                   <Save className="h-4 w-4" />
-                  <span>Save Configuration</span>
+                  <span>Save Meal Rates & Schedule</span>
                 </Button>
               </div>
             </form>
@@ -403,38 +424,92 @@ export default function SettingsPage() {
         </Card>
 
         {/* =========================================================================
-            CARD 2: TOTAL MILL LEDGER VIEWER CREDENTIALS
+            CARD 2: VIEWER NOTIFICATION EMAIL (আলাদা: যেখানে রিপোর্ট যাবে)
+            ========================================================================= */}
+        <Card className="border-blue-500/20 bg-blue-500/5">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2 text-blue-900 dark:text-blue-300">
+              <Mail className="h-4 w-4 text-blue-600" />
+              <span>Viewer Report Recipient Email (রিপোর্ট পাঠানোর ইমেইল)</span>
+            </CardTitle>
+            <CardDescription>
+              Set the destination email address where weekly aggregate financial reports are delivered.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSaveViewerReportEmail} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="viewer-report-email">Destination Email Address</Label>
+                <Input
+                  id="viewer-report-email"
+                  type="email"
+                  placeholder="e.g. auditor@gmail.com or messviewer@gmail.com"
+                  value={viewerReportEmail}
+                  onChange={(e) => setViewerReportEmail(e.target.value)}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  The weekly aggregate summary will be sent to this email address. Does not affect login credentials.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-blue-500/20 bg-background/60 p-3 text-xs text-muted-foreground space-y-1">
+                <p className="font-semibold text-foreground flex items-center gap-1.5">
+                  <ShieldCheck className="h-3.5 w-3.5 text-blue-600" />
+                  Privacy Enforcement:
+                </p>
+                <p className="text-[11px] leading-relaxed">
+                  Emails delivered to this address contain aggregate totals only (total meals, expenses, deposits, treasury balance). Individual member records are never included.
+                </p>
+              </div>
+
+              <div className="flex justify-end pt-1">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  isLoading={isSavingViewerReportEmail}
+                  className="gap-2 w-full sm:w-auto h-10 sm:h-9"
+                >
+                  <Send className="h-4 w-4" />
+                  <span>Save Report Email</span>
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* =========================================================================
+            CARD 3: VIEWER LOGIN ACCOUNT (আলাদা: ওয়েবসাইটে লগইন করার ইউজারনেম ও পাসওয়ার্ড)
             ========================================================================= */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-              <span>Total Mill Ledger Viewer Credentials</span>
+              <UserCheck className="h-4 w-4 text-primary" />
+              <span>Viewer Login Account (ওয়েবসাইট লগইন ইউজারনেম ও পাসওয়ার্ড)</span>
             </CardTitle>
             <CardDescription>
-              Manage login email and password for the Aggregate Group Ledger Viewer role
+              Set the username/email and password used by the viewer to sign in to the web dashboard.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleUpdateViewerCredentials} className="space-y-4">
+            <form onSubmit={handleUpdateViewerLogin} className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="viewer-email">Viewer Username / Email</Label>
+                <Label htmlFor="viewer-login-username">Login Username / Email</Label>
                 <Input
-                  id="viewer-email"
+                  id="viewer-login-username"
                   type="email"
                   placeholder="e.g. viewer@mill.local"
-                  value={viewerEmail}
-                  onChange={(e) => setViewerEmail(e.target.value)}
+                  value={viewerLoginUsername}
+                  onChange={(e) => setViewerLoginUsername(e.target.value)}
                   required
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  The login email used by the external auditor / mess viewer.
+                  The login identifier used on the login screen.
                 </p>
               </div>
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="viewer-password">Viewer Password</Label>
+                  <Label htmlFor="viewer-login-password">Login Password</Label>
                   <button
                     type="button"
                     onClick={() => setShowViewerPassword(!showViewerPassword)}
@@ -445,36 +520,26 @@ export default function SettingsPage() {
                   </button>
                 </div>
                 <Input
-                  id="viewer-password"
+                  id="viewer-login-password"
                   type={showViewerPassword ? "text" : "password"}
                   placeholder="Enter new password (min 6 chars)"
-                  value={viewerPassword}
-                  onChange={(e) => setViewerPassword(e.target.value)}
+                  value={viewerLoginPassword}
+                  onChange={(e) => setViewerLoginPassword(e.target.value)}
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Leave blank if you only want to update the email address.
+                  Leave blank to keep existing password unchanged.
                 </p>
               </div>
 
-              <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 text-xs text-blue-800 dark:text-blue-300 space-y-1">
-                <p className="font-semibold flex items-center gap-1">
-                  <ShieldCheck className="h-3.5 w-3.5 text-blue-600" />
-                  Aggregate Viewer Privacy Guarantee:
-                </p>
-                <p className="text-[11px] leading-relaxed">
-                  The user logging in with this account will strictly see group totals (Total daily meals, group expenses, treasury balance). Individual member names and personal balances are cryptographically inaccessible.
-                </p>
-              </div>
-
-              <div className="flex justify-end pt-2">
+              <div className="flex justify-end pt-1">
                 <Button
                   type="submit"
-                  variant="primary"
-                  isLoading={isUpdatingViewer}
+                  variant="outline"
+                  isLoading={isUpdatingViewerLogin}
                   className="gap-2 w-full sm:w-auto h-10 sm:h-9"
                 >
-                  <UserCheck className="h-4 w-4" />
-                  <span>Update Viewer Credentials</span>
+                  <KeyRound className="h-4 w-4" />
+                  <span>Update Viewer Login Credentials</span>
                 </Button>
               </div>
             </form>
@@ -482,13 +547,13 @@ export default function SettingsPage() {
         </Card>
 
         {/* =========================================================================
-            CARD 3: ADMIN SECURITY CREDENTIALS
+            CARD 4: ADMIN ACCOUNT & CREDENTIALS
             ========================================================================= */}
-        <Card className="lg:col-span-2">
+        <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <KeyRound className="h-4 w-4 text-primary" />
-              <span>Administrator Account & Credentials</span>
+              <span>Administrator Login Account</span>
             </CardTitle>
             <CardDescription>
               Update your primary administrator login email and password
@@ -496,71 +561,58 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleUpdateAdminCredentials} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="admin-email">Admin Email Address</Label>
-                  <Input
-                    id="admin-email"
-                    type="email"
-                    value={adminEmail}
-                    onChange={(e) => setAdminEmail(e.target.value)}
-                    required
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    Your login identifier for administrator access.
-                  </p>
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="admin-new-password">New Admin Password</Label>
-                    <button
-                      type="button"
-                      onClick={() => setShowAdminPassword(!showAdminPassword)}
-                      className="text-[11px] text-primary hover:underline flex items-center gap-1 cursor-pointer"
-                    >
-                      {showAdminPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                      <span>{showAdminPassword ? "Hide" : "Show"}</span>
-                    </button>
-                  </div>
-                  <Input
-                    id="admin-new-password"
-                    type={showAdminPassword ? "text" : "password"}
-                    placeholder="Enter new password"
-                    value={adminNewPassword}
-                    onChange={(e) => setAdminNewPassword(e.target.value)}
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    At least 6 characters. Leave blank to keep current password.
-                  </p>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="admin-confirm-password">Confirm New Password</Label>
-                  <Input
-                    id="admin-confirm-password"
-                    type={showAdminPassword ? "text" : "password"}
-                    placeholder="Re-enter password"
-                    value={adminConfirmPassword}
-                    onChange={(e) => setAdminConfirmPassword(e.target.value)}
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    Must match new password.
-                  </p>
-                </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="admin-email">Admin Login Email</Label>
+                <Input
+                  id="admin-email"
+                  type="email"
+                  value={adminEmail}
+                  onChange={(e) => setAdminEmail(e.target.value)}
+                  required
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Your primary administrator login identifier.
+                </p>
               </div>
 
-              <div className="flex items-center justify-between pt-2">
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <ShieldAlert className="h-4 w-4 text-amber-500 shrink-0" />
-                  <span>Changes take effect immediately on your Supabase Auth user record.</span>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="admin-new-password">New Password</Label>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminPassword(!showAdminPassword)}
+                    className="text-[11px] text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    {showAdminPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                    <span>{showAdminPassword ? "Hide" : "Show"}</span>
+                  </button>
                 </div>
+                <Input
+                  id="admin-new-password"
+                  type={showAdminPassword ? "text" : "password"}
+                  placeholder="Enter new password (min 6 chars)"
+                  value={adminNewPassword}
+                  onChange={(e) => setAdminNewPassword(e.target.value)}
+                />
+              </div>
 
+              <div className="space-y-1.5">
+                <Label htmlFor="admin-confirm-password">Confirm Password</Label>
+                <Input
+                  id="admin-confirm-password"
+                  type={showAdminPassword ? "text" : "password"}
+                  placeholder="Confirm new password"
+                  value={adminConfirmPassword}
+                  onChange={(e) => setAdminConfirmPassword(e.target.value)}
+                />
+              </div>
+
+              <div className="flex justify-end pt-1">
                 <Button
                   type="submit"
                   variant="primary"
                   isLoading={isUpdatingAdmin}
-                  className="gap-2 h-10 sm:h-9"
+                  className="gap-2 w-full sm:w-auto h-10 sm:h-9"
                 >
                   <KeyRound className="h-4 w-4" />
                   <span>Update Admin Credentials</span>

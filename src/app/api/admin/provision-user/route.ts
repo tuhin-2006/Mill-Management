@@ -18,21 +18,28 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { email, password, role, memberId, targetUserId } = body as {
+    const { email, password, role, memberId, targetUserId, syncReportEmail } = body as {
       email?: string;
       password?: string;
       role?: UserRole;
       memberId?: string;
       targetUserId?: string;
+      syncReportEmail?: boolean;
     };
 
     if (!targetUserId && (!email || !email.trim())) {
-      return NextResponse.json({ error: "Email address is required." }, { status: 400 });
+      return NextResponse.json({ error: "Email or username is required." }, { status: 400 });
     }
 
     if (password && password.length < 6) {
       return NextResponse.json({ error: "Password must be at least 6 characters long." }, { status: 400 });
     }
+
+    // Normalize identifier: if plain username without @, append @mill.local
+    const rawInput = (email || "").trim();
+    const normalizedEmail = rawInput.includes("@")
+      ? rawInput
+      : `${rawInput.toLowerCase()}@mill.local`;
 
     const assignedRole: UserRole = role || "member";
 
@@ -59,8 +66,8 @@ export async function POST(req: Request) {
       if (password && password.length >= 6) {
         updatePayload.password = password;
       }
-      if (email && email.trim()) {
-        updatePayload.email = email.trim();
+      if (normalizedEmail) {
+        updatePayload.email = normalizedEmail;
         updatePayload.email_confirm = true;
       }
 
@@ -77,12 +84,12 @@ export async function POST(req: Request) {
     } else {
       // B. Check if user already exists by email
       const { data: userList } = await supabaseAdmin.auth.admin.listUsers();
-      authUser = userList?.users.find((u) => u.email?.toLowerCase() === email!.toLowerCase().trim()) || null;
+      authUser = userList?.users.find((u) => u.email?.toLowerCase() === normalizedEmail.toLowerCase()) || null;
 
       if (!authUser) {
         // Create new user with email pre-confirmed
         const { data: createData, error: createErr } = await supabaseAdmin.auth.admin.createUser({
-          email: email!.trim(),
+          email: normalizedEmail,
           password: password || "Password123!",
           email_confirm: true,
         });
@@ -116,19 +123,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Failed to update profile: ${profileErr.message}` }, { status: 500 });
     }
 
-    // 5. If role is group_ledger_viewer, keep settings.group_ledger_viewer_email in sync
-    if (assignedRole === "group_ledger_viewer" && authUser.email) {
-      await supabaseAdmin.from("settings").update({
-        group_ledger_viewer_email: authUser.email,
-      }).eq("id", 1);
-    }
-
-    // 5. If memberId provided, link user_id in members table
+    // 5. If memberId provided, link user_id in members table (preserve existing report email unless explicitly synced)
     if (memberId) {
-      await supabaseAdmin.from("members").update({
+      const memberUpdate: { user_id: string; email?: string } = {
         user_id: authUser.id,
-        email: email ? email.trim() : authUser.email,
-      }).eq("id", memberId);
+      };
+
+      if (syncReportEmail && normalizedEmail && !normalizedEmail.endsWith("@mill.local")) {
+        memberUpdate.email = normalizedEmail;
+      }
+
+      await supabaseAdmin.from("members").update(memberUpdate).eq("id", memberId);
     }
 
     return NextResponse.json({

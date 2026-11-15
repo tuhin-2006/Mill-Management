@@ -49,8 +49,15 @@ export default function LoginPage() {
     try {
       setIsLoading(true);
       const supabase = createClient();
+
+      // Normalize identifier: if user enters plain username (e.g. "viewer" or "tuhin"), append @mill.local
+      const trimmedInput = email.trim();
+      const loginEmail = trimmedInput.includes("@")
+        ? trimmedInput
+        : `${trimmedInput.toLowerCase()}@mill.local`;
+
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: loginEmail,
         password,
       });
 
@@ -95,7 +102,7 @@ export default function LoginPage() {
           <CardHeader className="space-y-1 pb-4">
             <CardTitle className="text-base">Sign In</CardTitle>
             <CardDescription>
-              Enter your email and password to access your mill account
+              Enter your email or username and password to access your mill account
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -112,16 +119,18 @@ export default function LoginPage() {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="email">Admin Email</Label>
+                <Label htmlFor="email">Email or Username (ইমেইল বা ইউজারনেম)</Label>
                 <div className="relative">
                   <Input
                     id="email"
-                    type="email"
-                    placeholder="admin@mill.local"
+                    type="text"
+                    placeholder="e.g. admin@gmail.com, viewer, or member"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
-                    autoComplete="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    autoComplete="username"
                     className="pl-9"
                   />
                   <Mail className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />

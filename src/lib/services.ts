@@ -73,6 +73,7 @@ export const DEFAULT_SETTINGS: Settings = {
   auto_email_enabled: false,
   weekly_report_day: "Friday",
   weekly_report_time: "20:00",
+  gas_web_app_url: null,
   updated_at: new Date().toISOString(),
 };
 
@@ -125,10 +126,11 @@ export async function updateSettings(
   const error = res.error;
 
   // If columns don't exist yet in Supabase, retry without them gracefully
-  if (error && (error.message.includes("friday_meal_price") || error.message.includes("group_ledger_viewer_email"))) {
+  if (error && (error.message.includes("friday_meal_price") || error.message.includes("group_ledger_viewer_email") || error.message.includes("gas_web_app_url"))) {
     const fallbackUpdates = { ...updates };
     if (error.message.includes("friday_meal_price")) delete fallbackUpdates.friday_meal_price;
     if (error.message.includes("group_ledger_viewer_email")) delete fallbackUpdates.group_ledger_viewer_email;
+    if (error.message.includes("gas_web_app_url")) delete fallbackUpdates.gas_web_app_url;
     const retry = await supabase
       .from("settings")
       .update({

@@ -78,6 +78,7 @@ export default function MembersPage() {
   const [isAddOpen, setIsAddOpen] = React.useState(false);
   const [newMemberName, setNewMemberName] = React.useState("");
   const [newMemberEmail, setNewMemberEmail] = React.useState("");
+  const [newMemberUsername, setNewMemberUsername] = React.useState("");
   const [newMemberPassword, setNewMemberPassword] = React.useState("");
   const [createAccountWithMember, setCreateAccountWithMember] = React.useState(false);
   const [isAdding, setIsAdding] = React.useState(false);
@@ -86,6 +87,11 @@ export default function MembersPage() {
   const [editName, setEditName] = React.useState("");
   const [editEmail, setEditEmail] = React.useState("");
   const [isEditing, setIsEditing] = React.useState(false);
+
+  // Dedicated Report Email Modal state
+  const [reportEmailMember, setReportEmailMember] = React.useState<Member | null>(null);
+  const [reportEmailValue, setReportEmailValue] = React.useState("");
+  const [isSavingReportEmail, setIsSavingReportEmail] = React.useState(false);
 
   // Account provisioning state
   const [accountMember, setAccountMember] = React.useState<Member | null>(null);
@@ -226,14 +232,19 @@ export default function MembersPage() {
       const created = await addMember(supabase, newMemberName.trim(), newMemberEmail.trim() || null);
 
       // If user checked "Create login account immediately"
-      if (createAccountWithMember && newMemberEmail.trim() && newMemberPassword.trim().length >= 6) {
+      if (createAccountWithMember && newMemberPassword.trim().length >= 6) {
+        const loginIdent =
+          newMemberUsername.trim() ||
+          newMemberEmail.trim() ||
+          newMemberName.toLowerCase().replace(/\s+/g, "");
+
         try {
           await fetch("/api/admin/provision-user", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               memberId: created.id,
-              email: newMemberEmail.trim(),
+              email: loginIdent,
               password: newMemberPassword,
               role: "member",
             }),
@@ -248,6 +259,7 @@ export default function MembersPage() {
 
       setNewMemberName("");
       setNewMemberEmail("");
+      setNewMemberUsername("");
       setNewMemberPassword("");
       setCreateAccountWithMember(false);
       setIsAddOpen(false);
@@ -287,11 +299,37 @@ export default function MembersPage() {
     }
   };
 
-  // Provision Member Account
+  // Save / Update Member Notification/Report Email
+  const handleSaveReportEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reportEmailMember) return;
+
+    try {
+      setIsSavingReportEmail(true);
+      const supabase = createClient();
+      await updateMember(supabase, reportEmailMember.id, {
+        email: reportEmailValue.trim() || null,
+      });
+
+      toast.success(
+        reportEmailValue.trim()
+          ? `Report email for "${reportEmailMember.name}" saved as ${reportEmailValue.trim()}.`
+          : `Report email for "${reportEmailMember.name}" cleared.`
+      );
+      setReportEmailMember(null);
+      loadData();
+    } catch (err: unknown) {
+      toast.error("Failed to update report email: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setIsSavingReportEmail(false);
+    }
+  };
+
+  // Provision / Update Member Web Portal Login Credentials
   const handleProvisionAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!accountMember || !accountEmail.trim()) {
-      toast.error("Please enter a valid email address.");
+      toast.error("Please enter a username or email address.");
       return;
     }
     if (!accountPassword || accountPassword.length < 6) {
@@ -314,10 +352,10 @@ export default function MembersPage() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Failed to provision account");
+        throw new Error(data.error || "Failed to provision login credentials");
       }
 
-      toast.success(`Account for "${accountMember.name}" (${accountEmail}) provisioned as ${accountRole.toUpperCase()}!`);
+      toast.success(`Login credentials for "${accountMember.name}" saved successfully!`);
       setAccountMember(null);
       setAccountPassword("");
       loadData();
@@ -691,9 +729,10 @@ export default function MembersPage() {
                 <table className="w-full text-sm text-left">
                   <thead className="text-[11px] font-semibold uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border/70">
                     <tr>
-                      <th className="py-3 px-4">Member Info</th>
-                      <th className="py-3 px-3">Status</th>
-                      <th className="py-3 px-3">Login Account</th>
+                      <th className="py-3 px-4">Member</th>
+                      <th className="py-3 px-3">Report Email</th>
+                      <th className="py-3 px-3">Web Login</th>
+                      <th className="py-3 px-3 text-center">Status</th>
                       <th className="py-3 px-3 text-center">Meals</th>
                       <th className="py-3 px-4 text-right">Meal Cost</th>
                       <th className="py-3 px-4 text-right">Deposited</th>
@@ -729,22 +768,87 @@ export default function MembersPage() {
                                 <span className="font-semibold text-foreground text-sm block truncate">
                                   {member.name}
                                 </span>
-                                {member.email ? (
-                                  <span className="text-xs text-muted-foreground flex items-center gap-1 truncate mt-0.5">
-                                    <Mail className="h-3 w-3 text-muted-foreground/70 shrink-0" />
-                                    <span className="truncate">{member.email}</span>
-                                  </span>
-                                ) : (
-                                  <span className="text-[11px] text-muted-foreground/60 italic block">
-                                    No email set
-                                  </span>
-                                )}
                               </div>
                             </div>
                           </td>
 
-                          {/* Status */}
+                          {/* Report Email (Separate from Login) */}
                           <td className="py-3.5 px-3">
+                            {member.email ? (
+                              <div className="flex items-center gap-1.5 group/email">
+                                <span className="text-xs font-mono text-foreground truncate max-w-[160px]" title={member.email}>
+                                  {member.email}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setReportEmailMember(member);
+                                    setReportEmailValue(member.email || "");
+                                  }}
+                                  className="p-1 rounded text-muted-foreground hover:text-blue-600 hover:bg-blue-500/10 transition-colors"
+                                  title="Edit Report Email Address"
+                                >
+                                  <Edit2 className="h-3 w-3" />
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReportEmailMember(member);
+                                  setReportEmailValue("");
+                                }}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-blue-600 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 transition-colors"
+                                title="Click to set recipient email"
+                              >
+                                <Mail className="h-3 w-3" />
+                                <span>+ Set Email</span>
+                              </button>
+                            )}
+                          </td>
+
+                          {/* Web Login Account (Separate from Report Email) */}
+                          <td className="py-3.5 px-3">
+                            {member.user_id ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  <span>Active</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAccountMember(member);
+                                    setAccountEmail(member.email || `${member.name.toLowerCase().replace(/\s+/g, "")}@mill.local`);
+                                    setAccountPassword("");
+                                    setAccountRole("member");
+                                  }}
+                                  className="p-1 rounded text-muted-foreground hover:text-amber-600 hover:bg-amber-500/10 transition-colors"
+                                  title="Reset Login Password"
+                                >
+                                  <KeyRound className="h-3 w-3" />
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAccountMember(member);
+                                  setAccountEmail(member.email || `${member.name.toLowerCase().replace(/\s+/g, "")}@mill.local`);
+                                  setAccountPassword("");
+                                  setAccountRole("member");
+                                }}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-amber-600 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 transition-colors"
+                                title="Click to setup web login credentials"
+                              >
+                                <KeyRound className="h-3 w-3" />
+                                <span>+ Setup Login</span>
+                              </button>
+                            )}
+                          </td>
+
+                          {/* Status */}
+                          <td className="py-3.5 px-3 text-center">
                             <Badge
                               variant={member.status === "active" ? "success" : "secondary"}
                               className="text-[11px] font-medium"
@@ -753,50 +857,25 @@ export default function MembersPage() {
                             </Badge>
                           </td>
 
-                          {/* Login Account Status */}
-                          <td className="py-3.5 px-3">
-                            {member.user_id ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
-                                <CheckCircle2 className="h-3 w-3" />
-                                <span>Active</span>
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setAccountMember(member);
-                                  setAccountEmail(member.email || "");
-                                  setAccountPassword("");
-                                  setAccountRole("member");
-                                }}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors border border-border"
-                                title="Click to provision login account"
-                              >
-                                <KeyRound className="h-3 w-3" />
-                                <span>Setup</span>
-                              </button>
-                            )}
-                          </td>
-
                           {/* Meals Count */}
                           <td className="py-3.5 px-3 text-center font-semibold text-foreground">
-                            <span className="inline-block px-2 py-0.5 rounded-md bg-muted/60 text-xs">
+                            <span className="inline-block px-2 py-0.5 rounded-md bg-muted/60 text-xs font-mono">
                               {sum.total_meals}
                             </span>
                           </td>
 
                           {/* Meal Cost */}
-                          <td className="py-3.5 px-4 text-right text-muted-foreground font-medium">
+                          <td className="py-3.5 px-4 text-right text-muted-foreground font-medium font-mono">
                             {formatBDT(sum.total_meal_cost)}
                           </td>
 
                           {/* Total Deposited */}
-                          <td className="py-3.5 px-4 text-right font-semibold text-emerald-600 dark:text-emerald-400">
+                          <td className="py-3.5 px-4 text-right font-semibold text-emerald-600 dark:text-emerald-400 font-mono">
                             {formatBDT(sum.total_deposited)}
                           </td>
 
                           {/* Current Balance */}
-                          <td className="py-3.5 px-4 text-right">
+                          <td className="py-3.5 px-4 text-right font-mono">
                             <span
                               className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold ${
                                 isPositive
@@ -831,28 +910,12 @@ export default function MembersPage() {
                                   handleStatementPreset("this_month");
                                 }}
                                 className="h-8 w-8 text-blue-600 hover:bg-blue-500/10 transition-colors border-border/80"
-                                title="Send On-Demand Statement Email (হিসাবের ইমেইল পাঠান)"
+                                title="Send On-Demand Statement Email"
                               >
                                 <Mail className="h-3.5 w-3.5" />
                               </Button>
 
-                              {/* Provision Credentials */}
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={() => {
-                                  setAccountMember(member);
-                                  setAccountEmail(member.email || "");
-                                  setAccountPassword("");
-                                  setAccountRole("member");
-                                }}
-                                className="h-8 w-8 text-amber-600 hover:bg-amber-500/10 transition-colors border-border/80"
-                                title="Provision / Reset Login Credentials"
-                              >
-                                <KeyRound className="h-3.5 w-3.5" />
-                              </Button>
-
-                              {/* Edit Name & Email */}
+                              {/* Edit Name */}
                               <Button
                                 variant="outline"
                                 size="icon"
@@ -862,7 +925,7 @@ export default function MembersPage() {
                                   setEditEmail(member.email || "");
                                 }}
                                 className="h-8 w-8 text-muted-foreground hover:text-foreground transition-colors border-border/80"
-                                title="Edit Member Name & Email"
+                                title="Edit Member Name"
                               >
                                 <Edit2 className="h-3.5 w-3.5" />
                               </Button>
@@ -915,7 +978,7 @@ export default function MembersPage() {
 
                   return (
                     <div key={member.id} className="p-4 space-y-3 bg-card/60">
-                      {/* Top Row: Avatar, Name, Email, Status */}
+                      {/* Top Row: Avatar, Name, Status, Balance */}
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2.5 min-w-0">
                           <div
@@ -927,76 +990,121 @@ export default function MembersPage() {
                             <span className="font-semibold text-foreground text-sm truncate block">
                               {member.name}
                             </span>
-                            {member.email ? (
-                              <span className="text-xs text-muted-foreground flex items-center gap-1 truncate mt-0.5">
-                                <Mail className="h-3 w-3 text-muted-foreground/70 shrink-0" />
-                                <span className="truncate">{member.email}</span>
-                              </span>
-                            ) : (
-                              <span className="text-[11px] text-muted-foreground/60 italic block">
-                                No email
-                              </span>
-                            )}
+                            <Badge
+                              variant={member.status === "active" ? "success" : "secondary"}
+                              className="text-[10px] mt-0.5"
+                            >
+                              {member.status}
+                            </Badge>
                           </div>
                         </div>
 
-                        <div className="flex flex-col items-end gap-1 shrink-0">
-                          <Badge
-                            variant={member.status === "active" ? "success" : "secondary"}
-                            className="text-[10px]"
-                          >
-                            {member.status}
-                          </Badge>
-                          {member.user_id ? (
-                            <span className="text-[10px] text-emerald-600 font-medium">✓ Login Ready</span>
-                          ) : (
-                            <span className="text-[10px] text-muted-foreground">No Login</span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Financial Breakdown Grid */}
-                      <div className="grid grid-cols-3 gap-2 p-2.5 rounded-lg bg-muted/40 text-xs text-center border border-border/50">
-                        <div>
-                          <span className="text-[10px] text-muted-foreground block">Meals</span>
-                          <span className="font-bold text-foreground">{sum.total_meals}</span>
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-muted-foreground block">Expense</span>
-                          <span className="font-semibold text-muted-foreground">{formatBDT(sum.total_meal_cost)}</span>
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-muted-foreground block">Deposited</span>
-                          <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                            {formatBDT(sum.total_deposited)}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Balance Banner & Actions */}
-                      <div className="flex items-center justify-between pt-1 gap-2">
-                        <div>
-                          <span className="text-[10px] text-muted-foreground block">Current Balance</span>
+                        <div className="text-right">
+                          <span className="text-[10px] text-muted-foreground block">Net Balance</span>
                           <span
-                            className={`text-sm font-bold ${
+                            className={`text-sm font-bold font-mono ${
                               isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"
                             }`}
                           >
                             {formatBDT(sum.balance)}
                           </span>
                         </div>
+                      </div>
+
+                      {/* Separate Email & Login Row */}
+                      <div className="grid grid-cols-2 gap-2 p-2.5 rounded-lg bg-muted/30 border border-border/50 text-xs">
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block font-medium">Report Email:</span>
+                          {member.email ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReportEmailMember(member);
+                                setReportEmailValue(member.email || "");
+                              }}
+                              className="text-left font-mono text-[11px] text-foreground truncate block hover:text-blue-600 transition-colors mt-0.5"
+                            >
+                              {member.email}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReportEmailMember(member);
+                                setReportEmailValue("");
+                              }}
+                              className="text-[11px] text-blue-600 font-semibold hover:underline mt-0.5 block"
+                            >
+                              + Set Email
+                            </button>
+                          )}
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block font-medium">Web Login:</span>
+                          {member.user_id ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAccountMember(member);
+                                setAccountEmail(member.email || "");
+                                setAccountPassword("");
+                                setAccountRole("member");
+                              }}
+                              className="text-[11px] text-emerald-600 font-semibold hover:underline mt-0.5 flex items-center gap-1"
+                            >
+                              <CheckCircle2 className="h-3 w-3" />
+                              <span>Reset Pass</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAccountMember(member);
+                                setAccountEmail(member.email || "");
+                                setAccountPassword("");
+                                setAccountRole("member");
+                              }}
+                              className="text-[11px] text-amber-600 font-semibold hover:underline mt-0.5 flex items-center gap-1"
+                            >
+                              <KeyRound className="h-3 w-3" />
+                              <span>+ Setup Login</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Financial Breakdown Grid */}
+                      <div className="grid grid-cols-3 gap-2 p-2.5 rounded-lg bg-muted/40 text-xs text-center border border-border/50 font-mono">
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block font-sans">Meals</span>
+                          <span className="font-bold text-foreground">{sum.total_meals}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block font-sans">Expense</span>
+                          <span className="font-semibold text-muted-foreground">{formatBDT(sum.total_meal_cost)}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block font-sans">Deposited</span>
+                          <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                            {formatBDT(sum.total_deposited)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex items-center justify-between pt-1 gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleViewDetail(member.id)}
+                          className="h-8 px-2.5 text-xs text-primary border-primary/20 hover:bg-primary/10"
+                        >
+                          <Eye className="h-3.5 w-3.5 mr-1" />
+                          <span>Ledger</span>
+                        </Button>
 
                         <div className="flex items-center gap-1">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleViewDetail(member.id)}
-                            className="h-8 px-2.5 text-xs text-primary border-primary/20 hover:bg-primary/10"
-                          >
-                            <Eye className="h-3.5 w-3.5 mr-1" />
-                            <span>Ledger</span>
-                          </Button>
-
                           <Button
                             variant="outline"
                             size="icon"
@@ -1008,21 +1116,6 @@ export default function MembersPage() {
                             title="Send Statement Email"
                           >
                             <Mail className="h-3.5 w-3.5" />
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => {
-                              setAccountMember(member);
-                              setAccountEmail(member.email || "");
-                              setAccountPassword("");
-                              setAccountRole("member");
-                            }}
-                            className="h-8 w-8 text-amber-600 border-border/80"
-                            title="Manage Login"
-                          >
-                            <KeyRound className="h-3.5 w-3.5" />
                           </Button>
 
                           <Button
@@ -1047,6 +1140,16 @@ export default function MembersPage() {
                             title="Toggle Status"
                           >
                             <Power className="h-3.5 w-3.5" />
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => setMemberToDelete(member)}
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive border-border/80"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       </div>
@@ -1086,14 +1189,19 @@ export default function MembersPage() {
                     id="new-name"
                     placeholder="e.g. Rahim, Karim, Tuhin"
                     value={newMemberName}
-                    onChange={(e) => setNewMemberName(e.target.value)}
+                    onChange={(e) => {
+                      setNewMemberName(e.target.value);
+                      if (!newMemberUsername) {
+                        setNewMemberUsername(e.target.value.toLowerCase().replace(/\s+/g, ""));
+                      }
+                    }}
                     required
                     autoFocus
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="new-email">Email Address (ইমেইল - ঐচ্ছিক)</Label>
+                  <Label htmlFor="new-email">Report Email (হিসাবের ইমেইল - ঐচ্ছিক)</Label>
                   <Input
                     id="new-email"
                     type="email"
@@ -1102,26 +1210,38 @@ export default function MembersPage() {
                     onChange={(e) => setNewMemberEmail(e.target.value)}
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Required if this member should receive weekly automated email statements.
+                    This email receives weekly automated reports and on-demand mess statements.
                   </p>
                 </div>
 
                 {/* Optional instant login provisioning */}
-                {newMemberEmail.trim() && (
-                  <div className="p-3 rounded-lg border border-border bg-muted/30 space-y-2.5">
-                    <label className="flex items-center gap-2 text-xs font-semibold text-foreground cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={createAccountWithMember}
-                        onChange={(e) => setCreateAccountWithMember(e.target.checked)}
-                        className="rounded border-border text-primary focus:ring-primary"
-                      />
-                      <span>Create Member Login Account Immediately</span>
-                    </label>
+                <div className="p-3 rounded-lg border border-border bg-muted/30 space-y-2.5">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-foreground cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={createAccountWithMember}
+                      onChange={(e) => setCreateAccountWithMember(e.target.checked)}
+                      className="rounded border-border text-primary focus:ring-primary"
+                    />
+                    <span>Create Website Login Account (ঐচ্ছিক লগইন অ্যাক্সেস)</span>
+                  </label>
 
-                    {createAccountWithMember && (
-                      <div className="space-y-1 pt-1">
-                        <Label htmlFor="new-password">Initial Password</Label>
+                  {createAccountWithMember && (
+                    <div className="space-y-2.5 pt-1 border-t border-border/60">
+                      <div className="space-y-1">
+                        <Label htmlFor="new-username" className="text-xs">Login Username or Email</Label>
+                        <Input
+                          id="new-username"
+                          type="text"
+                          placeholder="e.g. tuhin or tuhin@gmail.com"
+                          value={newMemberUsername}
+                          onChange={(e) => setNewMemberUsername(e.target.value)}
+                          required={createAccountWithMember}
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label htmlFor="new-password" className="text-xs">Initial Password (পাসওয়ার্ড)</Label>
                         <Input
                           id="new-password"
                           type="password"
@@ -1131,9 +1251,9 @@ export default function MembersPage() {
                           required={createAccountWithMember}
                         />
                       </div>
-                    )}
-                  </div>
-                )}
+                    </div>
+                  )}
+                </div>
 
                 <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
                   <Button
@@ -1186,7 +1306,7 @@ export default function MembersPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="edit-email">Email Address</Label>
+                  <Label htmlFor="edit-email">Report Recipient Email (হিসাবের ইমেইল)</Label>
                   <Input
                     id="edit-email"
                     type="email"
@@ -1195,7 +1315,7 @@ export default function MembersPage() {
                     onChange={(e) => setEditEmail(e.target.value)}
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Used for weekly meal report delivery and personal login.
+                    Destination address for weekly and on-demand mess calculation reports.
                   </p>
                 </div>
 
@@ -1219,6 +1339,67 @@ export default function MembersPage() {
         </div>
       )}
 
+      {/* Modal: Dedicated Report Email Setup (আলাদা হিসাবের ইমেইল) */}
+      {reportEmailMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
+          <Card className="w-full max-w-md shadow-xl border-border">
+            <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-600">
+                  <Mail className="h-4 w-4" />
+                </div>
+                <div>
+                  <CardTitle className="text-base">Member Report Email</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Target Member: <strong>{reportEmailMember.name}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReportEmailMember(null)}
+                className="text-muted-foreground hover:text-foreground p-1"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <form onSubmit={handleSaveReportEmail} className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="member-report-email">Email Address (হিসাবের ইমেইল)</Label>
+                  <Input
+                    id="member-report-email"
+                    type="email"
+                    placeholder="e.g. member@gmail.com"
+                    value={reportEmailValue}
+                    onChange={(e) => setReportEmailValue(e.target.value)}
+                    autoFocus
+                  />
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    This address receives scheduled weekly reports and on-demand mess statements. It operates completely independently of website login credentials.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setReportEmailMember(null)}
+                    disabled={isSavingReportEmail}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" variant="primary" size="sm" isLoading={isSavingReportEmail}>
+                    Save Report Email
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Modal: Provision / Reset Login Credentials */}
       {accountMember && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
@@ -1227,7 +1408,7 @@ export default function MembersPage() {
               <div>
                 <CardTitle className="text-base flex items-center gap-2">
                   <KeyRound className="h-4 w-4 text-primary" />
-                  <span>Provision Login Credentials</span>
+                  <span>Web Portal Login Credentials</span>
                 </CardTitle>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Target Member: <strong>{accountMember.name}</strong>
@@ -1244,18 +1425,18 @@ export default function MembersPage() {
             <CardContent className="pt-4">
               <form onSubmit={handleProvisionAccount} className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="account-email">Login Email Address</Label>
+                  <Label htmlFor="account-email">Login Username or Email (ইউজারনেম বা ইমেইল)</Label>
                   <Input
                     id="account-email"
-                    type="email"
-                    placeholder="member@gmail.com"
+                    type="text"
+                    placeholder={`e.g. ${accountMember.name.toLowerCase().replace(/\s+/g, '')} or email@domain.com`}
                     value={accountEmail}
                     onChange={(e) => setAccountEmail(e.target.value)}
                     required
                     autoFocus
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    This email is used to log into their personal portal.
+                    You can set a simple username or any email address.
                   </p>
                 </div>
 
@@ -1314,7 +1495,7 @@ export default function MembersPage() {
                     Cancel
                   </Button>
                   <Button type="submit" variant="primary" size="sm" isLoading={isProvisioning}>
-                    Provision Account
+                    Save Login Credentials
                   </Button>
                 </div>
               </form>

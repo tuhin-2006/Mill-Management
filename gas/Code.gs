@@ -279,10 +279,10 @@ function verifyConfiguration() {
  * SAFE TEST 2: Send a sample Member Report & Group Ledger Report to the ADMIN ONLY.
  * Does NOT send emails to members. Bypasses member lists and sends exclusively to admin.
  */
-function sendTestEmail() {
+function sendTestEmail(overrideEmail) {
   Logger.log("=== [TEST] Sending Preview Email to Admin ===");
   var config = getConfig();
-  var targetEmail = config.adminTestEmail;
+  var targetEmail = overrideEmail || config.adminTestEmail;
 
   Logger.log("Target test recipient: " + targetEmail);
 
@@ -420,6 +420,17 @@ function doPost(e) {
       var targetEmail = body.targetEmail || config.adminTestEmail;
       sendTestEmail(targetEmail);
       result = { success: true, action: "test_preview", targetEmail: targetEmail };
+    } else if (action === "send_single_email") {
+      if (!body.to || !body.subject || !body.htmlBody) {
+        throw new Error("Missing required fields (to, subject, or htmlBody) in payload");
+      }
+      MailApp.sendEmail({
+        to: body.to,
+        subject: body.subject,
+        htmlBody: body.htmlBody,
+        name: body.senderName || "Mill Management System",
+      });
+      result = { success: true, action: "send_single_email", recipient: body.to };
     } else {
       var force = Boolean(body.force);
       result = sendWeeklyReports(true, force);

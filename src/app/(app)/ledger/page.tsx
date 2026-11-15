@@ -207,7 +207,7 @@ export default function TotalMillLedgerPage() {
     <div className="space-y-6">
       {/* Page Header */}
       <PageHeader
-        title="Total Mill Ledger (খতিয়ান ও নিরীক্ষা)"
+        title="Total Mill Ledger"
         description="Daily meal accounting, previous & running balance calculation, and dedicated payment logs."
         actions={
           <div className="flex items-center gap-2">
@@ -255,7 +255,7 @@ export default function TotalMillLedgerPage() {
                     : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
               >
-                This Week (এই সপ্তাহ)
+                This Week
               </button>
               <button
                 type="button"
@@ -266,7 +266,7 @@ export default function TotalMillLedgerPage() {
                     : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
               >
-                This Month (এই মাস)
+                This Month
               </button>
               <button
                 type="button"
@@ -277,7 +277,7 @@ export default function TotalMillLedgerPage() {
                     : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
               >
-                Last Month (গত মাস)
+                Last Month
               </button>
               <button
                 type="button"
@@ -288,7 +288,7 @@ export default function TotalMillLedgerPage() {
                     : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
               >
-                All Time (শুরু থেকে আজ)
+                All Time
               </button>
             </div>
 
@@ -359,7 +359,7 @@ export default function TotalMillLedgerPage() {
           <CardContent className="p-4 space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Previous Balance (পূর্বের ব্যালেন্স)
+                Previous Balance
               </span>
               <Badge
                 variant={!startDate ? "secondary" : isPreviousDue ? "destructive" : "success"}
@@ -394,7 +394,7 @@ export default function TotalMillLedgerPage() {
           <CardContent className="p-4 space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Period Meal Expense (মিল খরচ)
+                Period Meal Expense
               </span>
               <div className="p-1.5 bg-primary/10 text-primary rounded-lg shrink-0">
                 <UtensilsCrossed className="h-3.5 w-3.5" />
@@ -415,7 +415,7 @@ export default function TotalMillLedgerPage() {
           <CardContent className="p-4 space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Period Payments (মোট জমা)
+                Period Deposits
               </span>
               <div className="p-1.5 bg-emerald-500/10 text-emerald-600 rounded-lg shrink-0">
                 <TrendingUp className="h-3.5 w-3.5" />
@@ -441,7 +441,7 @@ export default function TotalMillLedgerPage() {
           <CardContent className="p-4 space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Closing Balance (বর্তমান ব্যালেন্স)
+                Closing Balance
               </span>
               <Badge
                 variant={isClosingPositive ? "success" : "destructive"}
@@ -460,7 +460,7 @@ export default function TotalMillLedgerPage() {
               {formatBDT(report?.closing.balance ?? 0)}
             </div>
             <p className="text-[11px] text-muted-foreground truncate">
-              Previous Balance + Payments - Meal Cost
+              Previous Balance + Deposits - Meal Cost
             </p>
           </CardContent>
         </Card>
@@ -478,7 +478,7 @@ export default function TotalMillLedgerPage() {
           }`}
         >
           <UtensilsCrossed className="h-4 w-4" />
-          <span>Daily Running Ledger (প্রতিদিনের মিল ও রানিং হিসাব)</span>
+          <span>Daily Running Ledger</span>
           {report && (
             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
               {report.dailyRows.length} Days
@@ -496,7 +496,7 @@ export default function TotalMillLedgerPage() {
           }`}
         >
           <CreditCard className="h-4 w-4" />
-          <span>Payment Details (পেমেন্ট হিস্ট্রি - কবে পেমেন্ট হয়েছে)</span>
+          <span>Payment Details</span>
           {report?.paymentTransactions && (
             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
               {report.paymentTransactions.length} Paid
@@ -514,7 +514,7 @@ export default function TotalMillLedgerPage() {
           }`}
         >
           <User className="h-4 w-4" />
-          <span>Member Statement Summary (সদস্যদের চূড়ান্ত খতিয়ান)</span>
+          <span>Member Statements</span>
           {report?.memberStatements && (
             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
               {report.memberStatements.length} Members
@@ -1120,7 +1120,7 @@ export default function TotalMillLedgerPage() {
                               variant={isClosingPositive ? "success" : "destructive"}
                               className="text-[10px] px-2 py-0.5"
                             >
-                              {isClosingPositive ? "Advance / জমা" : "Due / বকেয়া"}
+                              {isClosingPositive ? "Advance" : "Due"}
                             </Badge>
                           </td>
                         </tr>
