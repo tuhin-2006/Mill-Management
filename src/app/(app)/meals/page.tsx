@@ -58,6 +58,7 @@ export default function DailyMealEntryPage() {
 
   // Safety & UX states
   const [isConfirmOpen, setIsConfirmOpen] = React.useState(false);
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = React.useState(false);
   const [hoveredMemberId, setHoveredMemberId] = React.useState<string | null>(null);
 
   const weekday = getWeekdayName(selectedDate);
@@ -193,14 +194,13 @@ export default function DailyMealEntryPage() {
     );
   };
 
-  // Reset all to 0
-  const handleReset = () => {
+  // Helper to wipe local selections to 0
+  const executeReset = () => {
     const resetMap: Record<string, { lunch: number; dinner: number }> = {};
     for (const m of members) {
       resetMap[m.id] = { lunch: 0, dinner: 0 };
     }
     setMealSelections(resetMap);
-    toast.info("Meal selections reset to 0.");
   };
 
   // Effective meal price based on day (Friday lunch = friday_meal_price, other days = meal_price)
@@ -220,6 +220,22 @@ export default function DailyMealEntryPage() {
     : activeMembers.reduce((sum, m) => sum + (mealSelections[m.id]?.dinner || 0), 0);
   const totalDailyMeals = totalLunch + totalDinner;
   const totalDailyCost = totalDailyMeals * effectiveMealPrice;
+
+  // Safe Reset Click handler - asks confirmation if there are meals selected
+  const handleResetClick = () => {
+    if (totalDailyMeals === 0) {
+      toast.info("সব মেম্বারের মিল ইতিমধ্যেই ০ (Off) করা রয়েছে।");
+      return;
+    }
+    setIsResetConfirmOpen(true);
+  };
+
+  // Confirmed reset action
+  const handleConfirmReset = () => {
+    executeReset();
+    setIsResetConfirmOpen(false);
+    toast.info("সকল মেম্বারের মিল রিসেট করে ০ করা হয়েছে।");
+  };
 
   // Open review confirmation modal
   const handleSave = () => {
@@ -266,7 +282,7 @@ export default function DailyMealEntryPage() {
       await deleteDailyMeals(supabase, selectedDate);
 
       // Reset local state
-      handleReset();
+      executeReset();
       setHasExistingRecord(false);
       toast.success(`Meal records for ${formatDate(selectedDate)} deleted.`);
     } catch (err: unknown) {
@@ -643,7 +659,7 @@ export default function DailyMealEntryPage() {
               <Button
                 variant="outline"
                 size="md"
-                onClick={handleReset}
+                onClick={handleResetClick}
                 disabled={isSaving}
                 className="gap-1.5"
               >
@@ -811,6 +827,70 @@ export default function DailyMealEntryPage() {
                 >
                   <Check className="h-4 w-4" />
                   <span>{hasExistingRecord ? "হ্যাঁ, আপডেট নিশ্চিত করুন" : "হ্যাঁ, সেভ নিশ্চিত করুন"}</span>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Reset Confirmation Modal */}
+      {isResetConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <Card className="w-full max-w-md shadow-2xl border-amber-500/30">
+            <CardHeader className="flex flex-row items-start gap-3 pb-3 border-b border-border">
+              <div className="p-2.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5">
+                <RotateCcw className="h-5 w-5" />
+              </div>
+              <div className="flex-1">
+                <CardTitle className="text-base text-foreground">
+                  রিসেট নিশ্চিতকরণ (Confirm Reset)
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  সব মেম্বারের মিল শূন্য (০) করার পূর্ব সতর্কতা
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsResetConfirmOpen(false)}
+                className="text-muted-foreground hover:text-foreground p-1 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+
+            <CardContent className="pt-4 space-y-4">
+              <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 space-y-1.5">
+                <p className="font-semibold flex items-center gap-1.5">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  সতর্কবার্তা:
+                </p>
+                <p>
+                  আপনি কি নিশ্চিত যে <strong>{formatDate(selectedDate)}</strong> তারিখের সব মেম্বারের মিল নির্বাচন মুছে ফেলে ০ (Reset) করতে চান?
+                </p>
+                <p className="text-muted-foreground text-[11px]">
+                  বর্তমান নির্বাচিত মোট মিল: <strong>{totalDailyMeals} টি</strong>
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsResetConfirmOpen(false)}
+                >
+                  বাতিল করুন (Cancel)
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleConfirmReset}
+                  className="gap-1.5 shadow-sm"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>হ্যাঁ, রিসেট করুন</span>
                 </Button>
               </div>
             </CardContent>
