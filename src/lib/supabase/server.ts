@@ -1,11 +1,13 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { cache } from "react";
 
 /**
  * Creates a server Supabase client with cookie access.
  * Safe to call in Server Components, Server Actions, and Route Handlers.
+ * Memoized per-request using React.cache to avoid redundant client instantiations.
  */
-export async function createClient() {
+export const createClient = cache(async () => {
   const cookieStore = await cookies();
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -33,4 +35,21 @@ export async function createClient() {
       },
     },
   });
-}
+});
+
+/**
+ * Per-request memoized authentication check.
+ * Ensures supabase.auth.getUser() is called at most once across Layout, Page, and Route handlers.
+ */
+export const getAuthenticatedUser = cache(async (supabase: any) => {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error || !user) {
+    return null;
+  }
+
+  return user;
+});

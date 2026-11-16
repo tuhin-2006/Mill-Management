@@ -82,42 +82,8 @@ export default function DepositsPage() {
   }, []);
 
   React.useEffect(() => {
-    let ignore = false;
-    async function init() {
-      try {
-        const supabase = createClient();
-        const [membersData, depositsData, groupSum] = await Promise.all([
-          getMembers(supabase),
-          getDeposits(supabase),
-          getGroupSummary(supabase),
-        ]);
-
-        if (ignore) return;
-        setMembers(membersData);
-        setDeposits(depositsData);
-        setTotalDeposits(groupSum.total_group_deposit);
-        setTotalExpenses(groupSum.total_group_expense);
-        setNetBalance(groupSum.remaining_group_balance);
-
-        if (membersData.length > 0) {
-          setSelectedMemberId((prev) => prev || membersData[0].id);
-        }
-      } catch (err: unknown) {
-        if (!ignore) {
-          toast.error("Failed to load deposits: " + (err instanceof Error ? err.message : ""));
-        }
-      } finally {
-        if (!ignore) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    void init();
-    return () => {
-      ignore = true;
-    };
-  }, []);
+    loadData();
+  }, [loadData]);
 
   // Submit new deposit
   const handleSaveDeposit = async (e: React.FormEvent) => {

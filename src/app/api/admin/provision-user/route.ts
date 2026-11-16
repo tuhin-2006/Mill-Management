@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { getCurrentUserProfile } from "@/lib/services";
+import { getCurrentUserProfile, invalidateCache } from "@/lib/services";
+import { invalidateCredentialsCache } from "@/app/api/admin/user-credentials/route";
 import { UserRole } from "@/types";
 
 export async function POST(req: Request) {
@@ -167,6 +168,11 @@ export async function POST(req: Request) {
 
       await supabaseAdmin.from("members").update(memberUpdate).eq("id", memberId);
     }
+
+    // Invalidate caches so updated member accounts reflect instantly
+    invalidateCredentialsCache();
+    invalidateCache("members");
+    invalidateCache("user_profile_");
 
     return NextResponse.json({
       success: true,

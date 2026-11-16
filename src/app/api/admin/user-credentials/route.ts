@@ -3,6 +3,28 @@ import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { getCurrentUserProfile } from "@/lib/services";
 
+interface CredentialDetail {
+  userId: string;
+  email: string;
+  displayUsername: string;
+  displayPassword: string | null;
+  role: string;
+  createdAt: string;
+  lastSignInAt: string | null;
+}
+
+interface CachedCredentials {
+  data: Record<string, CredentialDetail>;
+  timestamp: number;
+}
+
+let credentialsCache: CachedCredentials | null = null;
+const CREDENTIALS_CACHE_TTL_MS = 30_000; // 30 seconds
+
+export function invalidateCredentialsCache(): void {
+  credentialsCache = null;
+}
+
 export async function GET(req: Request) {
   try {
     const supabase = await createServerClient();
@@ -15,80 +37,85 @@ export async function GET(req: Request) {
       );
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-
-    if (!supabaseUrl || !serviceRoleKey) {
-      return NextResponse.json(
-        { error: "Server misconfiguration: SUPABASE_SERVICE_ROLE_KEY missing." },
-        { status: 500 }
-      );
-    }
-
-    const supabaseAdmin = createAdminClient(supabaseUrl, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-
     const url = new URL(req.url);
     const memberId = url.searchParams.get("memberId");
 
-    // Fetch auth users, profiles, and members in parallel
-    const [
-      { data: userList, error: listErr },
-      { data: profiles, error: profErr },
-      { data: members, error: memErr },
-    ] = await Promise.all([
-      supabaseAdmin.auth.admin.listUsers(),
-      supabaseAdmin.from("profiles").select("*"),
-      supabaseAdmin.from("members").select("*"),
-    ]);
+    // Check fast memory cache
+    let credentialsMap: Record<string, CredentialDetail>;
 
-    if (listErr) {
-      return NextResponse.json({ error: listErr.message }, { status: 500 });
-    }
+    if (
+      credentialsCache &&
+      Date.now() - credentialsCache.timestamp < CREDENTIALS_CACHE_TTL_MS
+    ) {
+      credentialsMap = credentialsCache.data;
+    } else {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
-    const users = userList?.users || [];
-    const profs = profiles || [];
-    const mems = members || [];
-
-    const credentialsMap: Record<
-      string,
-      {
-        userId: string;
-        email: string;
-        displayUsername: string;
-        displayPassword: string | null;
-        role: string;
-        createdAt: string;
-        lastSignInAt: string | null;
+      if (!supabaseUrl || !serviceRoleKey) {
+        return NextResponse.json(
+          { error: "Server misconfiguration: SUPABASE_SERVICE_ROLE_KEY missing." },
+          { status: 500 }
+        );
       }
-    > = {};
 
-    for (const m of mems) {
-      // Find matching user either via m.user_id or via profile.member_id
-      const linkedProf = profs.find((p) => p.member_id === m.id);
-      const user = users.find((u) => (m.user_id && u.id === m.user_id) || (linkedProf && u.id === linkedProf.id));
+      const supabaseAdmin = createAdminClient(supabaseUrl, serviceRoleKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
 
-      if (user) {
-        const rawEmail = user.email || linkedProf?.email || "";
-        const cleanName = m.name.toLowerCase().replace(/\s+/g, "");
-        const displayUsername =
-          user.user_metadata?.display_username ||
-          (rawEmail.endsWith("@mill.local") ? rawEmail.replace("@mill.local", "") : rawEmail) ||
-          cleanName;
+      // Fetch auth users, profiles, and members in parallel
+      const [
+        { data: userList, error: listErr },
+        { data: profiles, error: profErr },
+        { data: members, error: memErr },
+      ] = await Promise.all([
+        supabaseAdmin.auth.admin.listUsers(),
+        supabaseAdmin.from("profiles").select("*"),
+        supabaseAdmin.from("members").select("*"),
+      ]);
 
-        const displayPassword = user.user_metadata?.display_password || null;
-
-        credentialsMap[m.id] = {
-          userId: user.id,
-          email: rawEmail,
-          displayUsername,
-          displayPassword,
-          role: linkedProf?.role || "member",
-          createdAt: user.created_at,
-          lastSignInAt: user.last_sign_in_at || null,
-        };
+      if (listErr) {
+        return NextResponse.json({ error: listErr.message }, { status: 500 });
       }
+
+      const users = userList?.users || [];
+      const profs = profiles || [];
+      const mems = members || [];
+
+      credentialsMap = {};
+
+      for (const m of mems) {
+        // Find matching user either via m.user_id or via profile.member_id
+        const linkedProf = profs.find((p) => p.member_id === m.id);
+        const user = users.find((u) => (m.user_id && u.id === m.user_id) || (linkedProf && u.id === linkedProf.id));
+
+        if (user) {
+          const rawEmail = user.email || linkedProf?.email || "";
+          const cleanName = m.name.toLowerCase().replace(/\s+/g, "");
+          const displayUsername =
+            user.user_metadata?.display_username ||
+            (rawEmail.endsWith("@mill.local") ? rawEmail.replace("@mill.local", "") : rawEmail) ||
+            cleanName;
+
+          const displayPassword = user.user_metadata?.display_password || null;
+
+          credentialsMap[m.id] = {
+            userId: user.id,
+            email: rawEmail,
+            displayUsername,
+            displayPassword,
+            role: linkedProf?.role || "member",
+            createdAt: user.created_at,
+            lastSignInAt: user.last_sign_in_at || null,
+          };
+        }
+      }
+
+      // Store in memory cache
+      credentialsCache = {
+        data: credentialsMap,
+        timestamp: Date.now(),
+      };
     }
 
     if (memberId) {

@@ -44,7 +44,6 @@ export function invalidateCache(prefix?: string): void {
 }
 
 function getFromCache<T>(key: string): T | null {
-  if (typeof window === "undefined") return null;
   const item = memoryCache.get(key);
   if (!item) return null;
   if (Date.now() - item.timestamp > DEFAULT_TTL_MS) {
@@ -55,7 +54,6 @@ function getFromCache<T>(key: string): T | null {
 }
 
 function setToCache<T>(key: string, data: T): void {
-  if (typeof window === "undefined") return;
   memoryCache.set(key, { data, timestamp: Date.now() });
 }
 
@@ -339,6 +337,10 @@ export async function getMealsForDate(
   supabase: SupabaseClient,
   dateString: string
 ): Promise<MealEntry[]> {
+  const cacheKey = `meals_date_${dateString}`;
+  const cached = getFromCache<MealEntry[]>(cacheKey);
+  if (cached) return cached;
+
   const { data, error } = await supabase
     .from("meal_entries")
     .select("*, member:members(*)")
@@ -349,10 +351,12 @@ export async function getMealsForDate(
     throw new Error(`Failed to fetch meals for date: ${error.message}`);
   }
 
-  return (data || []).map((row) => ({
+  const result: MealEntry[] = (data || []).map((row) => ({
     ...row,
     unit_price: Number(row.unit_price),
   }));
+  setToCache(cacheKey, result);
+  return result;
 }
 
 /**
@@ -687,12 +691,11 @@ export async function getGroupSummary(
 
   const today = getTodayInDhaka();
 
-  // Fetch parallel datasets
-  const [membersRes, mealsRes, depositsRes, todayMealsRes] = await Promise.all([
+  // Fetch parallel datasets (today meals are derived in-memory from all meals, saving 1 remote database query)
+  const [membersRes, mealsRes, depositsRes] = await Promise.all([
     supabase.from("members").select("*").order("name", { ascending: true }),
     supabase.from("meal_entries").select("*"),
     supabase.from("deposits").select("*"),
-    supabase.from("meal_entries").select("*").eq("meal_date", today),
   ]);
 
   if (membersRes.error) {
@@ -708,10 +711,7 @@ export async function getGroupSummary(
     ...d,
     amount: Number(d.amount),
   }));
-  const todayMeals: MealEntry[] = (todayMealsRes.data || []).map((m) => ({
-    ...m,
-    unit_price: Number(m.unit_price),
-  }));
+  const todayMeals: MealEntry[] = allMeals.filter((m) => m.meal_date === today);
 
   // Member summaries map
   const memberSummaries: MemberSummary[] = members.map((member) => {
@@ -1276,12 +1276,20 @@ export async function getPeriodLedgerReport(
  * 17. Multi-User Authentication & Profile Services
  */
 export async function getCurrentUserProfile(
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  currentUser?: { id: string; email?: string } | null
 ): Promise<(UserProfile & { member_name?: string }) | null> {
-  const { data: authData, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !authData?.user) return null;
+  let user = currentUser;
+  if (!user) {
+    const { data: authData, error: authErr } = await supabase.auth.getUser();
+    if (authErr || !authData?.user) return null;
+    user = authData.user;
+  }
 
-  const user = authData.user;
+  const cacheKey = `user_profile_${user.id}`;
+  const cached = getFromCache<UserProfile & { member_name?: string }>(cacheKey);
+  if (cached) return cached;
+
   const { data: profile, error: profErr } = await supabase
     .from("profiles")
     .select("*")
@@ -1323,7 +1331,7 @@ export async function getCurrentUserProfile(
     }
   }
 
-  return {
+  const result: UserProfile & { member_name?: string } = {
     id: user.id,
     email: user.email || "",
     role,
@@ -1331,6 +1339,9 @@ export async function getCurrentUserProfile(
     member_name: memberName,
     created_at: profile?.created_at || new Date().toISOString(),
   };
+
+  setToCache(cacheKey, result);
+  return result;
 }
 
 /**
@@ -1342,6 +1353,10 @@ export async function getMemberPersonalStatement(
   startDate?: string,
   endDate?: string
 ): Promise<MemberPersonalStatement | null> {
+  const cacheKey = `member_statement_${memberId}_${startDate || "all"}_${endDate || "all"}`;
+  const cached = getFromCache<MemberPersonalStatement>(cacheKey);
+  if (cached) return cached;
+
   const [memberRes, mealsRes, depositsRes] = await Promise.all([
     supabase.from("members").select("*").eq("id", memberId).single(),
     supabase.from("meal_entries").select("*").eq("member_id", memberId),
@@ -1422,7 +1437,7 @@ export async function getMemberPersonalStatement(
   const periodCost = filteredMeals.reduce((acc, m) => acc + m.quantity * m.unit_price, 0);
   const periodDeposited = filteredDeposits.reduce((acc, d) => acc + d.amount, 0);
 
-  return {
+  const result: MemberPersonalStatement = {
     member,
     summary: {
       total_meals: totalLunch + totalDinner,
@@ -1436,6 +1451,9 @@ export async function getMemberPersonalStatement(
     dailyMeals,
     deposits: filteredDeposits,
   };
+
+  setToCache(cacheKey, result);
+  return result;
 }
 
 /**
@@ -1446,6 +1464,10 @@ export async function getGroupAggregateLedger(
   startDate?: string,
   endDate?: string
 ): Promise<GroupAggregateReport> {
+  const cacheKey = `group_aggregate_${startDate || "all"}_${endDate || "all"}`;
+  const cached = getFromCache<GroupAggregateReport>(cacheKey);
+  if (cached) return cached;
+
   // First try the secure PostgreSQL SECURITY DEFINER function
   const { data: rpcData, error: rpcErr } = await supabase.rpc("get_group_aggregate_ledger", {
     p_start_date: startDate || null,
@@ -1453,7 +1475,9 @@ export async function getGroupAggregateLedger(
   });
 
   if (!rpcErr && rpcData) {
-    return rpcData as GroupAggregateReport;
+    const rpcResult = rpcData as GroupAggregateReport;
+    setToCache(cacheKey, rpcResult);
+    return rpcResult;
   }
 
   // Fallback if RPC is not yet executed in database (computes aggregate totals without member names)
@@ -1520,7 +1544,7 @@ export async function getGroupAggregateLedger(
   const totalLifetimeDeposits = deposits.reduce((acc, d) => acc + d.amount, 0);
   const totalLifetimeExpenses = meals.reduce((acc, m) => acc + (m.quantity > 0 ? m.quantity * m.unit_price : 0), 0);
 
-  return {
+  const report: GroupAggregateReport = {
     period: {
       startDate,
       endDate,
@@ -1538,4 +1562,7 @@ export async function getGroupAggregateLedger(
     },
     daily_rows,
   };
+
+  setToCache(cacheKey, report);
+  return report;
 }

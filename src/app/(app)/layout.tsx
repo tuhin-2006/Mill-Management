@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthenticatedUser } from "@/lib/supabase/server";
 import { getCurrentUserProfile } from "@/lib/services";
 import { AppShell } from "@/components/layout/app-shell";
 
@@ -15,16 +15,14 @@ export default async function AppLayout({
 
   try {
     const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const user = await getAuthenticatedUser(supabase);
 
     if (!user) {
       redirect("/login");
     }
 
     userEmail = user.email;
-    const profile = await getCurrentUserProfile(supabase);
+    const profile = await getCurrentUserProfile(supabase, user);
     if (profile) {
       userRole = profile.role;
       memberName = profile.member_name;

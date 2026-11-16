@@ -15,7 +15,7 @@ import {
   FileText,
   Calendar,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthenticatedUser } from "@/lib/supabase/server";
 import {
   getDashboardData,
   getCurrentUserProfile,
@@ -61,9 +61,10 @@ function getInitials(name: string): string {
 
 export default async function DashboardPage() {
   const supabase = await createClient();
+  const user = await getAuthenticatedUser(supabase);
 
-  // Role-Based Dashboard Resolution
-  const profile = await getCurrentUserProfile(supabase);
+  // Role-Based Dashboard Resolution (resolved with 0 duplicate network calls)
+  const profile = await getCurrentUserProfile(supabase, user);
 
   if (profile?.role === "member") {
     let statement = null;

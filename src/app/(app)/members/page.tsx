@@ -143,13 +143,14 @@ export default function MembersPage() {
   const [customEndDate, setCustomEndDate] = React.useState("");
   const [isSendingStatement, setIsSendingStatement] = React.useState(false);
 
-  // Load all data (Members, Financial Summaries, Credentials)
+  // Load all data (Members, Financial Summaries, Credentials) in parallel
   const loadData = React.useCallback(async () => {
     try {
       const supabase = createClient();
-      const [membersData, groupSum] = await Promise.all([
+      const [membersData, groupSum, credsRes] = await Promise.all([
         getMembers(supabase),
         getGroupSummary(supabase),
+        fetch("/api/admin/user-credentials").catch(() => null),
       ]);
 
       setMembers(membersData);
@@ -160,17 +161,15 @@ export default function MembersPage() {
       }
       setSummaries(sumMap);
 
-      // Fetch user login credentials map
-      try {
-        const credsRes = await fetch("/api/admin/user-credentials");
-        if (credsRes.ok) {
+      if (credsRes && credsRes.ok) {
+        try {
           const credsJson = await credsRes.json();
           if (credsJson.credentials) {
             setCredentialsMap(credsJson.credentials);
           }
+        } catch (e) {
+          console.warn("Could not parse user credentials:", e);
         }
-      } catch (e) {
-        console.warn("Could not fetch user credentials:", e);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";
