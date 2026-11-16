@@ -15,6 +15,8 @@ import {
   PeriodMemberStatement,
   UserProfile,
   UserRole,
+  GroupDailyPayment,
+  GroupAggregateDailyRow,
   GroupAggregateReport,
   MemberPersonalStatement,
   EmailLog,
@@ -1516,9 +1518,51 @@ export async function getGroupAggregateLedger(
   });
 
   if (!rpcErr && rpcData) {
-    const rpcResult = rpcData as GroupAggregateReport;
-    setToCache(cacheKey, rpcResult);
-    return rpcResult;
+    const rawData = rpcData as GroupAggregateReport;
+    const rawRows = rawData.daily_rows || [];
+
+    let openingBalance = 0;
+    if (startDate && rawData.lifetime && rawData.period) {
+      openingBalance =
+        (rawData.lifetime.total_deposits - rawData.period.total_deposit) -
+        (rawData.lifetime.total_expenses - rawData.period.total_cost);
+    }
+
+    // Chronological progression for running balance (oldest to newest)
+    const rowsAsc = [...rawRows].sort((a, b) => a.meal_date.localeCompare(b.meal_date));
+    let currBal = openingBalance;
+    for (const r of rowsAsc) {
+      r.previous_day_balance = currBal;
+      currBal = currBal + (r.total_deposit || 0) - (r.total_cost || 0);
+      r.running_balance = currBal;
+    }
+    const enrichedRows = rowsAsc.reverse();
+
+    // Aggregate date-wise payments (STRICTLY excludes member names and private notes)
+    const daily_payments: GroupDailyPayment[] = enrichedRows
+      .filter((r) => r.total_deposit > 0)
+      .map((r) => ({
+        deposit_date: r.meal_date,
+        day_name: r.day_name,
+        is_friday: r.is_friday,
+        total_amount: r.total_deposit,
+        deposit_count: 1,
+      }))
+      .sort((a, b) => b.deposit_date.localeCompare(a.deposit_date));
+
+    const finalResult: GroupAggregateReport = {
+      ...rawData,
+      period: {
+        ...rawData.period,
+        opening_balance: openingBalance,
+        closing_balance: currBal,
+      },
+      daily_rows: enrichedRows,
+      daily_payments,
+    };
+
+    setToCache(cacheKey, finalResult);
+    return finalResult;
   }
 
   // Fallback if RPC is not yet executed in database (computes aggregate totals without member names)
@@ -1540,9 +1584,17 @@ export async function getGroupAggregateLedger(
 
   const activeCount = (membersRes.data || []).filter((m) => m.status === "active").length;
 
+  // Opening balance before startDate
+  let openingBalance = 0;
+  if (startDate) {
+    const prevDeposits = deposits.filter((d) => d.deposit_date < startDate).reduce((acc, d) => acc + d.amount, 0);
+    const prevExpenses = meals.filter((m) => m.meal_date < startDate).reduce((acc, m) => acc + (m.quantity > 0 ? m.quantity * m.unit_price : 0), 0);
+    openingBalance = prevDeposits - prevExpenses;
+  }
+
   const datesMap = new Map<
     string,
-    { lunch_count: number; dinner_count: number; total_meals: number; total_cost: number; total_deposit: number }
+    { lunch_count: number; dinner_count: number; total_meals: number; total_cost: number; total_deposit: number; deposit_count: number }
   >();
 
   for (const m of meals) {
@@ -1550,7 +1602,7 @@ export async function getGroupAggregateLedger(
     if (endDate && m.meal_date > endDate) continue;
     if (m.quantity <= 0) continue;
 
-    const row = datesMap.get(m.meal_date) || { lunch_count: 0, dinner_count: 0, total_meals: 0, total_cost: 0, total_deposit: 0 };
+    const row = datesMap.get(m.meal_date) || { lunch_count: 0, dinner_count: 0, total_meals: 0, total_cost: 0, total_deposit: 0, deposit_count: 0 };
     if (m.session === "lunch") row.lunch_count += m.quantity;
     if (m.session === "dinner") row.dinner_count += m.quantity;
     row.total_meals += m.quantity;
@@ -1562,19 +1614,49 @@ export async function getGroupAggregateLedger(
     if (startDate && d.deposit_date < startDate) continue;
     if (endDate && d.deposit_date > endDate) continue;
 
-    const row = datesMap.get(d.deposit_date) || { lunch_count: 0, dinner_count: 0, total_meals: 0, total_cost: 0, total_deposit: 0 };
+    const row = datesMap.get(d.deposit_date) || { lunch_count: 0, dinner_count: 0, total_meals: 0, total_cost: 0, total_deposit: 0, deposit_count: 0 };
     row.total_deposit += d.amount;
+    row.deposit_count += 1;
     datesMap.set(d.deposit_date, row);
   }
 
-  const daily_rows = Array.from(datesMap.entries())
+  // Chronological progression for running balance
+  const sortedAsc = Array.from(datesMap.entries())
     .map(([date, d]) => ({
       meal_date: date,
       day_name: getWeekdayName(date),
       is_friday: isFridayDate(date),
-      ...d,
+      lunch_count: d.lunch_count,
+      dinner_count: d.dinner_count,
+      total_meals: d.total_meals,
+      total_cost: d.total_cost,
+      total_deposit: d.total_deposit,
+      deposit_count: d.deposit_count,
+      previous_day_balance: 0,
+      running_balance: 0,
     }))
-    .sort((a, b) => b.meal_date.localeCompare(a.meal_date));
+    .sort((a, b) => a.meal_date.localeCompare(b.meal_date));
+
+  let currentRunning = openingBalance;
+  for (const row of sortedAsc) {
+    row.previous_day_balance = currentRunning;
+    currentRunning = currentRunning + row.total_deposit - row.total_cost;
+    row.running_balance = currentRunning;
+  }
+
+  const daily_rows: GroupAggregateDailyRow[] = sortedAsc.reverse();
+
+  // Aggregate date-wise payments (Strictly aggregate totals, NO member names)
+  const daily_payments: GroupDailyPayment[] = daily_rows
+    .filter((r) => r.total_deposit > 0)
+    .map((r) => ({
+      deposit_date: r.meal_date,
+      day_name: r.day_name,
+      is_friday: r.is_friday,
+      total_amount: r.total_deposit,
+      deposit_count: (r as { deposit_count?: number }).deposit_count || 1,
+    }))
+    .sort((a, b) => b.deposit_date.localeCompare(a.deposit_date));
 
   const totalPeriodMeals = daily_rows.reduce((acc, r) => acc + r.total_meals, 0);
   const totalPeriodLunch = daily_rows.reduce((acc, r) => acc + r.lunch_count, 0);
@@ -1594,6 +1676,8 @@ export async function getGroupAggregateLedger(
       total_dinner: totalPeriodDinner,
       total_cost: totalPeriodCost,
       total_deposit: totalPeriodDeposit,
+      opening_balance: openingBalance,
+      closing_balance: currentRunning,
     },
     lifetime: {
       total_deposits: totalLifetimeDeposits,
@@ -1602,6 +1686,7 @@ export async function getGroupAggregateLedger(
       active_members_count: activeCount,
     },
     daily_rows,
+    daily_payments,
   };
 
   setToCache(cacheKey, report);

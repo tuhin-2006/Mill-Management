@@ -85,15 +85,27 @@ export function GroupLedgerViewerDashboard({ initialReport }: ViewerDashboardPro
   // Export aggregate records to CSV
   const handleExportCSV = () => {
     try {
-      const headers = ["Date", "Day", "Lunch Count", "Dinner Count", "Total Meals", "Total Meal Cost (BDT)", "Collected Deposits (BDT)"];
+      const headers = [
+        "Date",
+        "Day",
+        "Previous Bal (BDT)",
+        "Lunch Count",
+        "Dinner Count",
+        "Total Meals",
+        "Total Meal Cost (BDT)",
+        "Collected Deposits (BDT)",
+        "Running Bal (BDT)",
+      ];
       const rows = report.daily_rows.map((r) => [
         r.meal_date,
         r.day_name,
+        (r.previous_day_balance ?? 0).toString(),
         r.lunch_count.toString(),
         r.dinner_count.toString(),
         r.total_meals.toString(),
         r.total_cost.toString(),
         r.total_deposit.toString(),
+        (r.running_balance ?? 0).toString(),
       ]);
 
       downloadCSV(`group_aggregate_ledger_audit`, headers, rows);
@@ -336,69 +348,318 @@ export function GroupLedgerViewerDashboard({ initialReport }: ViewerDashboardPro
         </Card>
       </div>
 
-      {/* Daily Group Ledger Table */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <UtensilsCrossed className="h-4 w-4 text-primary" />
-            <span>সম্মিলিত দৈনিক মিলের খতিয়ান (Daily Group Ledger)</span>
-          </CardTitle>
-          <CardDescription>
-            Aggregated attendance figures and group costs by date.
-          </CardDescription>
+      {/* Daily Group Ledger Table (With Running Balance) */}
+      <Card className="border-border shadow-xs">
+        <CardHeader className="pb-3 border-b border-border/60">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <CardTitle className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <UtensilsCrossed className="h-4 w-4 text-primary" />
+                <span>সম্মিলিত দৈনিক মিলের খতিয়ান ও রানিং ব্যালেন্স (Daily Group Ledger & Running Balance)</span>
+              </CardTitle>
+              <CardDescription>
+                প্রতিদিনের পূর্ববর্তী ব্যালেন্স, মিল খরচ, জমাকৃত টাকা এবং রানিং ব্যালেন্সের সমন্বিত হিসাব।
+              </CardDescription>
+            </div>
+            <Badge variant="outline" className="text-xs shrink-0 self-start sm:self-auto">
+              {report.daily_rows.length} Days Recorded
+            </Badge>
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-4">
           {report.daily_rows.length === 0 ? (
             <div className="py-8 text-center text-xs text-muted-foreground">
               No ledger records found for this period.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead>
-                  <tr className="border-b border-border text-muted-foreground uppercase text-[10px] font-semibold">
-                    <th className="py-2.5 px-3">Date</th>
-                    <th className="py-2.5 px-3">Day</th>
-                    <th className="py-2.5 px-3 text-center">Group Lunch</th>
-                    <th className="py-2.5 px-3 text-center">Group Dinner</th>
-                    <th className="py-2.5 px-3 text-center">Total Meals</th>
-                    <th className="py-2.5 px-3 text-right">Daily Cost (BDT)</th>
-                    <th className="py-2.5 px-3 text-right">Collected (BDT)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/60">
-                  {report.daily_rows.map((row) => (
-                    <tr key={row.meal_date} className="hover:bg-muted/30 transition-colors">
-                      <td className="py-2.5 px-3 font-medium text-foreground">
-                        {formatDate(row.meal_date)}
-                        {row.is_friday && (
-                          <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 font-semibold">
-                            Friday
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3 text-muted-foreground">{row.day_name}</td>
-                      <td className="py-2.5 px-3 text-center">{row.lunch_count}</td>
-                      <td className="py-2.5 px-3 text-center">
-                        {row.is_friday ? (
-                          <span className="text-[10px] text-muted-foreground">Closed</span>
-                        ) : (
-                          row.dinner_count
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3 text-center font-bold text-foreground">
-                        {row.total_meals}
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-bold text-foreground">
-                        {formatBDT(row.total_cost)}
-                      </td>
-                      <td className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400 font-medium">
-                        {row.total_deposit > 0 ? `+${formatBDT(row.total_deposit)}` : "-"}
-                      </td>
+            <div className="space-y-3">
+              {/* Desktop & Tablet Table */}
+              <div className="hidden sm:block overflow-x-auto rounded-xl border border-border bg-card">
+                <table className="w-full text-xs text-left">
+                  <thead className="text-[10px] uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border">
+                    <tr>
+                      <th className="py-3 px-3 font-semibold">Date & Day</th>
+                      <th className="py-3 px-3 text-right font-semibold">Previous Bal (B/F)</th>
+                      <th className="py-3 px-3 text-center font-semibold">Lunch</th>
+                      <th className="py-3 px-3 text-center font-semibold">Dinner</th>
+                      <th className="py-3 px-3 text-center font-semibold">Total Meals</th>
+                      <th className="py-3 px-3 text-right font-semibold">Daily Meal Cost</th>
+                      <th className="py-3 px-3 text-right font-semibold">Payments Received</th>
+                      <th className="py-3 px-3 text-right font-semibold">Running Bal (C/F)</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {report.daily_rows.map((row) => {
+                      const prevBal = row.previous_day_balance ?? 0;
+                      const runBal = row.running_balance ?? 0;
+                      const hasDeposits = (row.total_deposit ?? 0) > 0;
+
+                      return (
+                        <tr key={row.meal_date} className="hover:bg-muted/30 transition-colors">
+                          <td className="py-3 px-3 font-medium text-foreground whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              <span>{formatDate(row.meal_date)}</span>
+                              <span className="text-[11px] text-muted-foreground">({row.day_name})</span>
+                              {row.is_friday && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] border-amber-500/30 text-amber-700 dark:text-amber-400 py-0"
+                                >
+                                  Friday
+                                </Badge>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="py-3 px-3 text-right font-medium whitespace-nowrap">
+                            <span
+                              className={
+                                prevBal >= 0
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-rose-600 dark:text-rose-400"
+                              }
+                            >
+                              {formatBDT(prevBal)}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3 text-center text-muted-foreground">
+                            {row.lunch_count > 0 ? row.lunch_count : "-"}
+                          </td>
+                          <td className="py-3 px-3 text-center text-muted-foreground">
+                            {row.is_friday ? (
+                              <span className="text-[10px] text-muted-foreground/60 italic">Closed</span>
+                            ) : row.dinner_count > 0 ? (
+                              row.dinner_count
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+
+                          <td className="py-3 px-3 text-center font-bold text-foreground">
+                            {row.total_meals}
+                          </td>
+
+                          <td className="py-3 px-3 text-right font-bold text-primary whitespace-nowrap">
+                            -{formatBDT(row.total_cost)}
+                          </td>
+
+                          <td className="py-3 px-3 text-right whitespace-nowrap">
+                            {hasDeposits ? (
+                              <span className="inline-flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                                +{formatBDT(row.total_deposit)}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground/50">-</span>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-3 text-right font-extrabold whitespace-nowrap">
+                            <span
+                              className={
+                                runBal >= 0
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-rose-600 dark:text-rose-400"
+                              }
+                            >
+                              {formatBDT(runBal)}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Phone Card View */}
+              <div className="sm:hidden space-y-3">
+                {report.daily_rows.map((row) => {
+                  const prevBal = row.previous_day_balance ?? 0;
+                  const runBal = row.running_balance ?? 0;
+                  const hasDeposits = (row.total_deposit ?? 0) > 0;
+
+                  return (
+                    <div
+                      key={row.meal_date}
+                      className="p-3.5 rounded-xl border border-border bg-card shadow-2xs space-y-2.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 font-bold text-foreground text-xs">
+                          <span>{formatDate(row.meal_date)}</span>
+                          <span className="text-[11px] font-normal text-muted-foreground">({row.day_name})</span>
+                          {row.is_friday && (
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] border-amber-500/30 text-amber-700 dark:text-amber-400 py-0"
+                            >
+                              Friday
+                            </Badge>
+                          )}
+                        </div>
+                        <span
+                          className={`font-extrabold text-sm ${
+                            runBal >= 0
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-rose-600 dark:text-rose-400"
+                          }`}
+                        >
+                          Bal: {formatBDT(runBal)}
+                        </span>
+                      </div>
+
+                      {/* 3-Column Progression Bar */}
+                      <div className="grid grid-cols-3 gap-1.5 p-2 rounded-lg bg-muted/40 text-xs text-center border border-border/40">
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">Prev Balance</span>
+                          <span
+                            className={`font-semibold ${
+                              prevBal >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600"
+                            }`}
+                          >
+                            {formatBDT(prevBal)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">Day Meal Cost</span>
+                          <span className="font-semibold text-primary">
+                            -{formatBDT(row.total_cost)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">Payments</span>
+                          <span
+                            className={`font-semibold ${
+                              hasDeposits
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            {hasDeposits ? `+${formatBDT(row.total_deposit)}` : "৳0"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="text-xs text-muted-foreground">
+                        {row.total_meals} meals (Lunch: {row.lunch_count}, Dinner: {row.dinner_count})
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* =========================================================================
+          DEDICATED PAYMENT & DEPOSIT HISTORY (কবে কত টাকা জমা হয়েছে - Total Only)
+          Strictly aggregate totals by date; excludes individual member identities
+          ========================================================================= */}
+      <Card className="border-border shadow-xs">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
+          <div>
+            <CardTitle className="text-base sm:text-lg font-bold flex items-center gap-2">
+              <Wallet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Payment & Deposit History (পেমেন্ট হিস্ট্রি - কবে টাকা জমা হয়েছে)</span>
+            </CardTitle>
+            <CardDescription>
+              তারিখভিত্তিক সম্মিলিত মোট জমার নিরীক্ষা বিবরণী (গোপনীয়তা নীতিমালা অনুযায়ী সদস্যদের ব্যক্তিগত তথ্য গোপন রাখা হয়েছে)।
+            </CardDescription>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs shrink-0">
+              {report.daily_payments?.length || 0} Payment Days
+            </Badge>
+            <Badge
+              variant="success"
+              className="text-xs shrink-0 font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20"
+            >
+              Total Collected: +{formatBDT(report.period.total_deposit)}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-4">
+          {!report.daily_payments || report.daily_payments.length === 0 ? (
+            <div className="py-10 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl">
+              <Wallet className="h-8 w-8 mx-auto mb-2 opacity-30 text-emerald-600" />
+              <p className="font-medium text-foreground">No payment records found for this period.</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                All deposits received will automatically organize here by date.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {/* Desktop Table View */}
+              <div className="hidden sm:block overflow-x-auto rounded-xl border border-border bg-card">
+                <table className="w-full text-xs text-left">
+                  <thead className="text-[10px] uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border">
+                    <tr>
+                      <th className="py-3 px-3.5 font-semibold">Payment Date</th>
+                      <th className="py-3 px-3.5 text-right font-semibold">Total Paid on Date (মোট জমা)</th>
+                      <th className="py-3 px-3.5 font-semibold">Deposit Description (বিবরণ)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {report.daily_payments.map((p) => (
+                      <tr key={p.deposit_date} className="hover:bg-muted/30 transition-colors">
+                        <td className="py-3.5 px-3.5 font-medium text-foreground whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            <Calendar className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                            <span className="font-bold text-xs">{formatDate(p.deposit_date)}</span>
+                            <span className="text-[11px] text-muted-foreground">({p.day_name})</span>
+                            {p.is_friday && (
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] border-amber-500/30 text-amber-700 dark:text-amber-400 py-0"
+                              >
+                                Friday
+                              </Badge>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-3.5 text-right whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg text-sm">
+                            +{formatBDT(p.total_amount)}
+                          </span>
+                        </td>
+
+                        <td className="py-3.5 px-3.5 text-muted-foreground text-xs">
+                          সম্মিলিত মেস তহবিল জমা (Group Treasury Deposit)
+                          {p.deposit_count && p.deposit_count > 1 ? ` • ${p.deposit_count} deposits received` : ""}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Phone Card View */}
+              <div className="sm:hidden space-y-2.5">
+                {report.daily_payments.map((p) => (
+                  <div
+                    key={p.deposit_date}
+                    className="p-3.5 rounded-xl border border-border bg-card shadow-2xs space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 font-bold text-foreground text-xs">
+                        <Calendar className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span>{formatDate(p.deposit_date)}</span>
+                        <span className="text-[11px] font-normal text-muted-foreground">({p.day_name})</span>
+                      </div>
+                      <span className="font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md text-xs">
+                        +{formatBDT(p.total_amount)}
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] text-muted-foreground pt-1 border-t border-border/40">
+                      সম্মিলিত মেস তহবিল জমা (Group Deposit)
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </CardContent>

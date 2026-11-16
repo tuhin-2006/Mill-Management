@@ -241,6 +241,27 @@ export interface EmailLog {
   member?: Member;
 }
 
+export interface GroupDailyPayment {
+  deposit_date: string;
+  day_name: string;
+  is_friday: boolean;
+  total_amount: number;
+  deposit_count?: number;
+}
+
+export interface GroupAggregateDailyRow {
+  meal_date: string;
+  day_name: string;
+  is_friday: boolean;
+  lunch_count: number;
+  dinner_count: number;
+  total_meals: number;
+  total_cost: number;
+  total_deposit: number;
+  previous_day_balance?: number;
+  running_balance?: number;
+}
+
 export interface GroupAggregateReport {
   period: {
     startDate?: string | null;
@@ -250,6 +271,8 @@ export interface GroupAggregateReport {
     total_dinner: number;
     total_cost: number;
     total_deposit: number;
+    opening_balance?: number;
+    closing_balance?: number;
   };
   lifetime: {
     total_deposits: number;
@@ -257,16 +280,8 @@ export interface GroupAggregateReport {
     balance: number;
     active_members_count: number;
   };
-  daily_rows: Array<{
-    meal_date: string;
-    day_name: string;
-    is_friday: boolean;
-    lunch_count: number;
-    dinner_count: number;
-    total_meals: number;
-    total_cost: number;
-    total_deposit: number;
-  }>;
+  daily_rows: GroupAggregateDailyRow[];
+  daily_payments?: GroupDailyPayment[];
 }
 
 export interface MemberPersonalStatement {
