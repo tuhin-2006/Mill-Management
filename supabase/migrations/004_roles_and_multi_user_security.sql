@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- Migration: 004_roles_and_multi_user_security.sql
--- Project: Personal Mill Management System
+-- Project: Mill Management System
 -- Purpose:
 --   1. Add role & member_id to profiles table for multi-user authentication.
 --   2. Add user_id to members table for linking auth accounts.

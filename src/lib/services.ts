@@ -32,8 +32,24 @@ interface CacheItem<T> {
 }
 
 const memoryCache = new Map<string, CacheItem<unknown>>();
-const DEFAULT_TTL_MS = 25_000; // 25 seconds TTL
+const DEFAULT_TTL_MS = 30_000; // 30 seconds TTL for fast client navigation
 
+type CacheInvalidationListener = (prefix?: string) => void;
+const invalidationListeners = new Set<CacheInvalidationListener>();
+
+/**
+ * Register a listener to be notified whenever cache keys are invalidated
+ */
+export function onCacheInvalidated(listener: CacheInvalidationListener): () => void {
+  invalidationListeners.add(listener);
+  return () => {
+    invalidationListeners.delete(listener);
+  };
+}
+
+/**
+ * Invalidate in-memory cache and notify all active query subscribers
+ */
 export function invalidateCache(prefix?: string): void {
   if (!prefix) {
     memoryCache.clear();
@@ -44,9 +60,21 @@ export function invalidateCache(prefix?: string): void {
       }
     }
   }
+
+  // Notify listeners immediately
+  invalidationListeners.forEach((listener) => {
+    try {
+      listener(prefix);
+    } catch (e) {
+      console.error("Cache invalidation listener error:", e);
+    }
+  });
 }
 
-function getFromCache<T>(key: string): T | null {
+/**
+ * Retrieves a cached item if within TTL
+ */
+export function getFromCache<T>(key: string): T | null {
   const item = memoryCache.get(key);
   if (!item) return null;
   if (Date.now() - item.timestamp > DEFAULT_TTL_MS) {
@@ -56,7 +84,15 @@ function getFromCache<T>(key: string): T | null {
   return item.data as T;
 }
 
-function setToCache<T>(key: string, data: T): void {
+/**
+ * Returns currently cached data regardless of TTL (for instant Stale-While-Revalidate render)
+ */
+export function getCachedItem<T>(key: string): T | null {
+  const item = memoryCache.get(key);
+  return item ? (item.data as T) : null;
+}
+
+export function setToCache<T>(key: string, data: T): void {
   memoryCache.set(key, { data, timestamp: Date.now() });
 }
 

@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- Migration: 001_initial_schema.sql
--- Project: Personal Mill Management System
+-- Project: Mill Management System
 -- Description: Core tables, constraints, indexes, RLS policies, and initial seeds.
 -- ==============================================================================
 

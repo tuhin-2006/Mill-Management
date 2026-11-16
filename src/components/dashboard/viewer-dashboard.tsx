@@ -23,6 +23,7 @@ import { formatBDT, formatDate, getPresetDateRange, DatePreset } from "@/lib/dat
 import { downloadCSV } from "@/lib/csv";
 import { createClient } from "@/lib/supabase/client";
 import { getGroupAggregateLedger } from "@/lib/services";
+import { useRealtimeSync } from "@/hooks/use-realtime-sync";
 import { GroupAggregateReport } from "@/types";
 import { toast } from "sonner";
 
@@ -51,6 +52,11 @@ export function GroupLedgerViewerDashboard({ initialReport }: ViewerDashboardPro
       setIsLoadingRange(false);
     }
   }, []);
+
+  // Real-time synchronization: automatically updates when group aggregate sync fires
+  useRealtimeSync(["aggregate", "all"], () => {
+    void fetchAggregate(startDate || undefined, endDate || undefined);
+  });
 
   const handlePreset = (preset: DatePreset) => {
     setActivePreset(preset);

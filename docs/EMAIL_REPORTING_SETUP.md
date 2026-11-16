@@ -1,5 +1,5 @@
 # Free Gmail-Based Weekly Email Reporting Setup Guide
-**Personal Mill Management System (ব্যক্তিগত মিল ম্যানেজমেন্ট সিস্টেম)**
+**Mill Management System (মিল ম্যানেজমেন্ট সিস্টেম)**
 
 This guide walks you step-by-step through setting up, testing, and managing the automated weekly email reporting system using **Google Apps Script** and **Supabase Edge Functions**.
 

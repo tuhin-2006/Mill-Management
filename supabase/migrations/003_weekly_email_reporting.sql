@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- Migration: 003_weekly_email_reporting.sql
--- Project: Personal Mill Management System
+-- Project: Mill Management System
 -- Purpose:
 --   1. Add email column to members table for individual weekly reporting.
 --   2. Add group_ledger_viewer_email column to settings table.

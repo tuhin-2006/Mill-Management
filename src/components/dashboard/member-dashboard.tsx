@@ -23,6 +23,7 @@ import { formatBDT, formatDate, formatFullDate, getPresetDateRange, DatePreset }
 import { downloadCSV } from "@/lib/csv";
 import { createClient } from "@/lib/supabase/client";
 import { getMemberPersonalStatement } from "@/lib/services";
+import { useRealtimeSync } from "@/hooks/use-realtime-sync";
 import { MemberPersonalStatement } from "@/types";
 import { toast } from "sonner";
 
@@ -56,6 +57,11 @@ export function MemberDashboard({ initialData }: MemberDashboardProps) {
       setIsLoadingRange(false);
     }
   }, [member.id]);
+
+  // Real-time synchronization: automatically updates when admin saves meals or deposits
+  useRealtimeSync(["meals", "deposits", "all"], () => {
+    void fetchStatement(startDate || undefined, endDate || undefined);
+  });
 
   const handlePreset = (preset: DatePreset) => {
     setActivePreset(preset);

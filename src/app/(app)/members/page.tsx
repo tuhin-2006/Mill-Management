@@ -35,7 +35,9 @@ import {
   deleteMember,
   getGroupSummary,
   getMemberLedger,
+  getCachedItem,
 } from "@/lib/services";
+import { useRealtimeSync } from "@/hooks/use-realtime-sync";
 import { formatBDT, formatDate, getTodayInDhaka } from "@/lib/date";
 import { Member, MemberSummary, UserRole } from "@/types";
 import { PageHeader } from "@/components/layout/page-header";
@@ -82,10 +84,12 @@ const MONTH_NAMES_BN = [
 ];
 
 export default function MembersPage() {
-  const [members, setMembers] = React.useState<Member[]>([]);
+  const [members, setMembers] = React.useState<Member[]>(() => {
+    return getCachedItem<Member[]>("members:all") || [];
+  });
   const [summaries, setSummaries] = React.useState<Record<string, MemberSummary>>({});
   const [credentialsMap, setCredentialsMap] = React.useState<Record<string, MemberCredentials>>({});
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [isLoading, setIsLoading] = React.useState(!members.length);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [isTableMissing, setIsTableMissing] = React.useState(false);
 
@@ -187,6 +191,11 @@ export default function MembersPage() {
   React.useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Real-time synchronization for members and financial balances
+  useRealtimeSync(["members", "meals", "deposits", "all"], () => {
+    void loadData();
+  });
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -1203,7 +1212,7 @@ export default function MembersPage() {
                     onChange={(e) => setCredsRole(e.target.value as UserRole)}
                     className="w-full h-8 px-2.5 rounded-md border border-input bg-background text-xs"
                   >
-                    <option value="member">MEMBER (Personal read-only dashboard)</option>
+                    <option value="member">MEMBER (Member read-only portal)</option>
                     <option value="admin">ADMIN (Full administrative access)</option>
                     <option value="group_ledger_viewer">GROUP_LEDGER_VIEWER (Confidential Aggregate only)</option>
                   </select>

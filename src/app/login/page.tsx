@@ -93,7 +93,7 @@ export default function LoginPage() {
             {siteConfig.name}
           </h1>
           <p className="text-xs text-muted-foreground mt-1">
-            Personal Mill Management Portal
+            Mill Management Portal
           </p>
         </div>
 

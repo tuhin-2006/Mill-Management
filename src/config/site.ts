@@ -1,6 +1,6 @@
 export const siteConfig = {
-  name: "Personal Mill Management System",
-  description: "A calm, modern, and reliable management system for personal and mess mills.",
+  name: "Mill Management System",
+  description: "A calm, modern, and reliable meal and mess accounting management system.",
   version: "0.1.0",
 };
 

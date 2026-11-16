@@ -1,4 +1,4 @@
-# Personal Mill Management System (ব্যক্তিগত মিল ম্যানেজমেন্ট সিস্টেম)
+# Mill Management System (মিল ম্যানেজমেন্ট সিস্টেম)
 
 A modern, fast, and production-quality private meal and expense tracking system for a 4-member mess group, built with **Next.js 16 (App Router)**, **TypeScript**, **Tailwind CSS v4**, and **Supabase (PostgreSQL + Auth)**.
 

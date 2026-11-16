@@ -1,6 +1,6 @@
 /**
  * Script: setup-admin.mjs
- * Purpose: Securely creates the initial Admin user for Personal Mill Management System
+ * Purpose: Securely creates the initial Admin user for Mill Management System
  * Usage: node scripts/setup-admin.mjs <admin-email> <admin-password>
  */
 

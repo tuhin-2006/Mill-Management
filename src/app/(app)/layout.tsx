@@ -12,6 +12,7 @@ export default async function AppLayout({
   let userRole: "admin" | "member" | "group_ledger_viewer" = "admin";
   let userEmail: string | undefined;
   let memberName: string | undefined;
+  let memberId: string | null = null;
 
   try {
     const supabase = await createClient();
@@ -26,6 +27,7 @@ export default async function AppLayout({
     if (profile) {
       userRole = profile.role;
       memberName = profile.member_name;
+      memberId = profile.member_id || null;
     }
 
     // Server-Side Role Route Guard
@@ -70,6 +72,7 @@ export default async function AppLayout({
       userRole={userRole}
       userEmail={userEmail}
       memberName={memberName}
+      memberId={memberId}
     >
       {children}
     </AppShell>

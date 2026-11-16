@@ -4,7 +4,8 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Wallet, Calendar, Filter, RotateCcw, Download } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { getCurrentUserProfile, getMemberPersonalStatement } from "@/lib/services";
+import { getCurrentUserProfile, getMemberPersonalStatement, getCachedItem } from "@/lib/services";
+import { useRealtimeSync } from "@/hooks/use-realtime-sync";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,40 +40,42 @@ export default function MyDepositsPage() {
     void initUser();
   }, [router]);
 
-  // Fetch data on range change
-  React.useEffect(() => {
+  const loadData = React.useCallback(async (showLoading = true) => {
     if (!memberId) return;
-    let ignore = false;
-
-    async function loadData() {
-      try {
-        setIsLoading(true);
-        const supabase = createClient();
-        const res = await getMemberPersonalStatement(
-          supabase,
-          memberId!,
-          startDate || undefined,
-          endDate || undefined
-        );
-        if (!ignore) {
-          setStatement(res);
-        }
-      } catch (err: unknown) {
-        if (!ignore) {
-          toast.error("Failed to load deposits: " + (err instanceof Error ? err.message : ""));
-        }
-      } finally {
-        if (!ignore) {
-          setIsLoading(false);
+    try {
+      if (showLoading) {
+        const cacheKey = `member_statement:${memberId}:${startDate || "all"}:${endDate || "all"}`;
+        const cached = getCachedItem<MemberPersonalStatement>(cacheKey);
+        if (cached) {
+          setStatement(cached);
+        } else {
+          setIsLoading(true);
         }
       }
+      const supabase = createClient();
+      const res = await getMemberPersonalStatement(
+        supabase,
+        memberId,
+        startDate || undefined,
+        endDate || undefined
+      );
+      setStatement(res);
+    } catch (err: unknown) {
+      toast.error("Failed to load deposits: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setIsLoading(false);
     }
-
-    void loadData();
-    return () => {
-      ignore = true;
-    };
   }, [memberId, startDate, endDate]);
+
+  // Fetch data on range change
+  React.useEffect(() => {
+    void loadData(true);
+  }, [loadData]);
+
+  // Real-time synchronization
+  useRealtimeSync(["deposits", "all"], () => {
+    void loadData(false);
+  });
 
   const handlePreset = (preset: DatePreset) => {
     setActivePreset(preset);

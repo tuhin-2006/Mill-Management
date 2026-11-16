@@ -22,7 +22,8 @@ import {
   X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { getPeriodLedgerReport } from "@/lib/services";
+import { getPeriodLedgerReport, getCachedItem } from "@/lib/services";
+import { useRealtimeSync } from "@/hooks/use-realtime-sync";
 import {
   formatBDT,
   formatDate,
@@ -93,32 +94,35 @@ function LedgerPageContent() {
   const [report, setReport] = React.useState<PeriodLedgerReport | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
 
-  React.useEffect(() => {
-    let ignore = false;
-    async function fetchLedger() {
-      try {
-        setIsLoading(true);
-        const supabase = createClient();
-        const data = await getPeriodLedgerReport(supabase, startDate, endDate, selectedMemberId);
-        if (!ignore) {
-          setReport(data);
-        }
-      } catch (err: unknown) {
-        if (!ignore) {
-          toast.error("Failed to load ledger: " + (err instanceof Error ? err.message : ""));
-        }
-      } finally {
-        if (!ignore) {
-          setIsLoading(false);
+  const fetchLedger = React.useCallback(async (showLoading = true) => {
+    try {
+      if (showLoading) {
+        const cacheKey = `period_ledger:${startDate}:${endDate}:${selectedMemberId || "all"}`;
+        const cached = getCachedItem<PeriodLedgerReport>(cacheKey);
+        if (cached) {
+          setReport(cached);
+        } else {
+          setIsLoading(true);
         }
       }
+      const supabase = createClient();
+      const data = await getPeriodLedgerReport(supabase, startDate, endDate, selectedMemberId);
+      setReport(data);
+    } catch (err: unknown) {
+      toast.error("Failed to load ledger: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setIsLoading(false);
     }
-
-    void fetchLedger();
-    return () => {
-      ignore = true;
-    };
   }, [startDate, endDate, selectedMemberId]);
+
+  React.useEffect(() => {
+    void fetchLedger(true);
+  }, [fetchLedger]);
+
+  // Real-time synchronization
+  useRealtimeSync(["meals", "deposits", "all"], () => {
+    void fetchLedger(false);
+  });
 
   const handleMemberChange = (memberId: string) => {
     setSelectedMemberId(memberId);

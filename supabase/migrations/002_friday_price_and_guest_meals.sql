@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- Migration: 002_friday_price_and_guest_meals.sql
--- Project: Personal Mill Management System
+-- Project: Mill Management System
 -- Purpose:
 --   1. Add friday_meal_price to settings (default 120 BDT)
 --   2. Update meal_entries quantity constraint to allow guest meals (quantity >= 0)

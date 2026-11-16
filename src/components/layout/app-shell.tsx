@@ -20,6 +20,7 @@ import {
 import { navigationConfig, getNavigationForRole, NavItem } from "@/config/navigation";
 import { siteConfig } from "@/config/site";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { RealtimeProvider, useRealtime } from "@/lib/realtime/realtime-provider";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { invalidateCache } from "@/lib/services";
@@ -33,6 +34,48 @@ export interface AppShellProps {
   userRole?: UserRole;
   userEmail?: string;
   memberName?: string;
+  memberId?: string | null;
+}
+
+function RealtimeStatusBadge() {
+  const { connectionState } = useRealtime();
+
+  if (connectionState === "connected") {
+    return (
+      <div
+        className="flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+        title="Real-time live sync connected"
+      >
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+        </span>
+        <span className="hidden sm:inline">Live</span>
+      </div>
+    );
+  }
+
+  if (connectionState === "connecting") {
+    return (
+      <div
+        className="flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+        title="Connecting to real-time sync..."
+      >
+        <span className="inline-flex rounded-full h-2 w-2 bg-amber-500 animate-pulse"></span>
+        <span className="hidden sm:inline">Syncing</span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium bg-muted text-muted-foreground border border-border"
+      title="Offline / Reconnecting"
+    >
+      <span className="inline-flex rounded-full h-2 w-2 bg-muted-foreground/60"></span>
+      <span className="hidden sm:inline">Offline</span>
+    </div>
+  );
 }
 
 export function AppShell({
@@ -40,7 +83,31 @@ export function AppShell({
   userRole = "admin",
   userEmail,
   memberName,
+  memberId,
 }: AppShellProps) {
+  return (
+    <RealtimeProvider
+      userRole={userRole}
+      memberId={memberId}
+      userEmail={userEmail}
+    >
+      <AppShellInner
+        userRole={userRole}
+        userEmail={userEmail}
+        memberName={memberName}
+      >
+        {children}
+      </AppShellInner>
+    </RealtimeProvider>
+  );
+}
+
+function AppShellInner({
+  children,
+  userRole = "admin",
+  userEmail,
+  memberName,
+}: Omit<AppShellProps, "memberId">) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = React.useState(false);
@@ -145,7 +212,7 @@ export function AppShell({
                   {siteConfig.name}
                 </span>
                 <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
-                  Personal Mill
+                  Mill Manager
                 </span>
               </div>
             )}
@@ -239,7 +306,8 @@ export function AppShell({
           </Link>
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          <RealtimeStatusBadge />
           <ThemeToggle />
         </div>
       </div>
@@ -263,7 +331,7 @@ export function AppShell({
                 </div>
                 <div className="flex flex-col">
                   <span className="text-foreground font-bold">{siteConfig.name}</span>
-                  <span className="text-[10px] text-muted-foreground uppercase font-medium">Personal Mess</span>
+                  <span className="text-[10px] text-muted-foreground uppercase font-medium">Mill Manager</span>
                 </div>
               </div>
               <Button
@@ -463,6 +531,7 @@ export function AppShell({
             </span>
           </div>
           <div className="flex items-center gap-3">
+            <RealtimeStatusBadge />
             <ThemeToggle />
           </div>
         </header>

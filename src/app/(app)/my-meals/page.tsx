@@ -15,7 +15,8 @@ import {
   Search,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { getCurrentUserProfile, getPeriodLedgerReport } from "@/lib/services";
+import { getCurrentUserProfile, getPeriodLedgerReport, getCachedItem } from "@/lib/services";
+import { useRealtimeSync } from "@/hooks/use-realtime-sync";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -63,40 +64,42 @@ export default function MyMealsPage() {
     void initUser();
   }, [router]);
 
-  // Fetch data on range change
-  React.useEffect(() => {
+  const loadData = React.useCallback(async (showLoading = true) => {
     if (!memberId) return;
-    let ignore = false;
-
-    async function loadData() {
-      try {
-        setIsLoading(true);
-        const supabase = createClient();
-        const res = await getPeriodLedgerReport(
-          supabase,
-          startDate || undefined,
-          endDate || undefined,
-          memberId!
-        );
-        if (!ignore) {
-          setReport(res);
-        }
-      } catch (err: unknown) {
-        if (!ignore) {
-          toast.error("Failed to load meal ledger: " + (err instanceof Error ? err.message : ""));
-        }
-      } finally {
-        if (!ignore) {
-          setIsLoading(false);
+    try {
+      if (showLoading) {
+        const cacheKey = `period_ledger:${startDate || "all"}:${endDate || "all"}:${memberId}`;
+        const cached = getCachedItem<PeriodLedgerReport>(cacheKey);
+        if (cached) {
+          setReport(cached);
+        } else {
+          setIsLoading(true);
         }
       }
+      const supabase = createClient();
+      const res = await getPeriodLedgerReport(
+        supabase,
+        startDate || undefined,
+        endDate || undefined,
+        memberId
+      );
+      setReport(res);
+    } catch (err: unknown) {
+      toast.error("Failed to load meal ledger: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setIsLoading(false);
     }
-
-    void loadData();
-    return () => {
-      ignore = true;
-    };
   }, [memberId, startDate, endDate]);
+
+  // Fetch data on range change
+  React.useEffect(() => {
+    void loadData(true);
+  }, [loadData]);
+
+  // Real-time synchronization for member meals and deposits
+  useRealtimeSync(["meals", "deposits", "all"], () => {
+    void loadData(false);
+  });
 
   const handlePreset = (preset: DatePreset) => {
     setActivePreset(preset);

@@ -19,7 +19,10 @@ import {
   updateDeposit,
   deleteDeposit,
   getGroupSummary,
+  getCachedItem,
 } from "@/lib/services";
+import { useRealtimeSync } from "@/hooks/use-realtime-sync";
+import { useRealtime } from "@/lib/realtime/realtime-provider";
 import { formatBDT, formatDate, getTodayInDhaka } from "@/lib/date";
 import { Member, Deposit } from "@/types";
 import { PageHeader } from "@/components/layout/page-header";
@@ -30,9 +33,14 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
 export default function DepositsPage() {
-  const [members, setMembers] = React.useState<Member[]>([]);
-  const [deposits, setDeposits] = React.useState<Deposit[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const { broadcastGroupSync } = useRealtime();
+  const [members, setMembers] = React.useState<Member[]>(() => {
+    return getCachedItem<Member[]>("members:all") || [];
+  });
+  const [deposits, setDeposits] = React.useState<Deposit[]>(() => {
+    return getCachedItem<Deposit[]>("deposits:all") || [];
+  });
+  const [isLoading, setIsLoading] = React.useState(!members.length && !deposits.length);
 
   // Group summary state for top balance cards
   const [totalDeposits, setTotalDeposits] = React.useState(0);
@@ -40,7 +48,10 @@ export default function DepositsPage() {
   const [netBalance, setNetBalance] = React.useState(0);
 
   // Form states for new deposit
-  const [selectedMemberId, setSelectedMemberId] = React.useState("");
+  const [selectedMemberId, setSelectedMemberId] = React.useState(() => {
+    const cachedMembers = getCachedItem<Member[]>("members:all");
+    return cachedMembers && cachedMembers.length > 0 ? cachedMembers[0].id : "";
+  });
   const [amount, setAmount] = React.useState("");
   const [depositDate, setDepositDate] = React.useState(getTodayInDhaka());
   const [note, setNote] = React.useState("");
@@ -82,10 +93,15 @@ export default function DepositsPage() {
   }, []);
 
   React.useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
-  // Submit new deposit
+  // Real-time synchronization for deposits & group balance
+  useRealtimeSync(["deposits", "all"], () => {
+    void loadData();
+  });
+
+  // Submit new deposit with optimistic UI feedback
   const handleSaveDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
     const numAmount = parseFloat(amount);
@@ -97,6 +113,27 @@ export default function DepositsPage() {
       toast.error("Please select a member.");
       return;
     }
+
+    const previousDeposits = [...deposits];
+    const previousTotal = totalDeposits;
+    const previousNet = netBalance;
+    const chosenMember = members.find((m) => m.id === selectedMemberId);
+
+    // Optimistic record
+    const tempDeposit: Deposit = {
+      id: `temp-${Date.now()}`,
+      member_id: selectedMemberId,
+      amount: numAmount,
+      deposit_date: depositDate,
+      note: note || "Regular Mess Deposit",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      member: chosenMember,
+    };
+
+    setDeposits((prev) => [tempDeposit, ...prev]);
+    setTotalDeposits((prev) => prev + numAmount);
+    setNetBalance((prev) => prev + numAmount);
 
     try {
       setIsSubmitting(true);
@@ -111,8 +148,13 @@ export default function DepositsPage() {
       toast.success(`Deposit of ${formatBDT(numAmount)} saved successfully!`);
       setAmount("");
       setNote("");
-      loadData();
+      broadcastGroupSync();
+      void loadData();
     } catch (err: unknown) {
+      // Rollback on failure
+      setDeposits(previousDeposits);
+      setTotalDeposits(previousTotal);
+      setNetBalance(previousNet);
       toast.error("Failed to save deposit: " + (err instanceof Error ? err.message : ""));
     } finally {
       setIsSubmitting(false);
@@ -140,24 +182,38 @@ export default function DepositsPage() {
 
       toast.success("Deposit updated successfully.");
       setEditDepositItem(null);
-      loadData();
+      broadcastGroupSync();
+      void loadData();
     } catch (err: unknown) {
       toast.error("Failed to update deposit: " + (err instanceof Error ? err.message : ""));
     }
   };
 
-  // Delete deposit
+  // Delete deposit with optimistic removal
   const handleDeleteDeposit = async (id: string, memberName: string, amt: number) => {
     if (!confirm(`Are you sure you want to delete deposit of ${formatBDT(amt)} for ${memberName}?`)) {
       return;
     }
 
+    const previousDeposits = [...deposits];
+    const previousTotal = totalDeposits;
+    const previousNet = netBalance;
+
+    setDeposits((prev) => prev.filter((d) => d.id !== id));
+    setTotalDeposits((prev) => prev - amt);
+    setNetBalance((prev) => prev - amt);
+
     try {
       const supabase = createClient();
       await deleteDeposit(supabase, id);
       toast.success("Deposit transaction removed.");
-      loadData();
+      broadcastGroupSync();
+      void loadData();
     } catch (err: unknown) {
+      // Rollback on failure
+      setDeposits(previousDeposits);
+      setTotalDeposits(previousTotal);
+      setNetBalance(previousNet);
       toast.error("Failed to delete deposit: " + (err instanceof Error ? err.message : ""));
     }
   };

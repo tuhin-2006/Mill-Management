@@ -1,5 +1,5 @@
 /**
- * Global TypeScript domain interfaces for Personal Mill Management System.
+ * Global TypeScript domain interfaces for Mill Management System.
  */
 
 export type Nullable<T> = T | null;

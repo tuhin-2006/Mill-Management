@@ -24,7 +24,10 @@ import {
   saveDailyMeals,
   deleteDailyMeals,
   DEFAULT_SETTINGS,
+  getCachedItem,
 } from "@/lib/services";
+import { useRealtimeSync } from "@/hooks/use-realtime-sync";
+import { useRealtime } from "@/lib/realtime/realtime-provider";
 import {
   getTodayInDhaka,
   getWeekdayName,
@@ -41,10 +44,15 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
 export default function DailyMealEntryPage() {
+  const { broadcastGroupSync } = useRealtime();
   const [selectedDate, setSelectedDate] = React.useState<string>(getTodayInDhaka());
-  const [members, setMembers] = React.useState<Member[]>([]);
-  const [settings, setSettings] = React.useState<Settings>(DEFAULT_SETTINGS);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [members, setMembers] = React.useState<Member[]>(() => {
+    return getCachedItem<Member[]>("members:all") || [];
+  });
+  const [settings, setSettings] = React.useState<Settings>(() => {
+    return getCachedItem<Settings>("settings:global") || DEFAULT_SETTINGS;
+  });
+  const [isLoading, setIsLoading] = React.useState(!members.length);
   const [isSaving, setIsSaving] = React.useState(false);
   const [hasExistingRecord, setHasExistingRecord] = React.useState(false);
 
@@ -175,6 +183,13 @@ export default function DailyMealEntryPage() {
     loadDateMeals(selectedDate, members);
   }, [selectedDate, loadDateMeals, members]);
 
+  // Real-time synchronization for meals and members
+  useRealtimeSync(["meals", "members", "all"], () => {
+    if (!isDirty && members.length > 0) {
+      void loadDateMeals(selectedDate, members);
+    }
+  });
+
   // Date Change with unsaved changes guard
   const handleDateChange = (newDate: string) => {
     if (isDirty) {
@@ -299,6 +314,7 @@ export default function DailyMealEntryPage() {
       setSavedSelections(mealSelections);
       setHasExistingRecord(true);
       setIsConfirmOpen(false);
+      broadcastGroupSync();
       toast.success(
         `Daily meals for ${formatDate(selectedDate)} saved successfully! (${totalDailyMeals} meals, ${formatBDT(totalDailyCost)})`
       );
@@ -324,6 +340,7 @@ export default function DailyMealEntryPage() {
       // Reset local state
       executeReset();
       setHasExistingRecord(false);
+      broadcastGroupSync();
       toast.success(`Meal records for ${formatDate(selectedDate)} deleted.`);
     } catch (err: unknown) {
       toast.error("Failed to delete meals: " + (err instanceof Error ? err.message : ""));
