@@ -37,9 +37,10 @@ export async function POST(req: Request) {
 
     // Normalize identifier: if plain username without @, append @mill.local
     const rawInput = (email || "").trim();
+    const cleanUsername = rawInput.replace(/@mill\.local$/i, "");
     const normalizedEmail = rawInput.includes("@")
       ? rawInput
-      : `${rawInput.toLowerCase()}@mill.local`;
+      : `${cleanUsername.toLowerCase()}@mill.local`;
 
     const assignedRole: UserRole = role || "member";
 
@@ -58,11 +59,24 @@ export async function POST(req: Request) {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    let authUser: { id: string; email?: string } | null = null;
+    let authUser: { id: string; email?: string; user_metadata?: Record<string, any> } | null = null;
+    const finalPassword = password || "Password123!";
 
     // A. If targetUserId is explicitly provided, update existing user
     if (targetUserId) {
-      const updatePayload: { password?: string; email?: string; email_confirm?: boolean } = {};
+      const updatePayload: {
+        password?: string;
+        email?: string;
+        email_confirm?: boolean;
+        user_metadata?: Record<string, any>;
+      } = {
+        user_metadata: {
+          display_username: cleanUsername,
+          display_password: finalPassword,
+          updated_at: new Date().toISOString(),
+        },
+      };
+
       if (password && password.length >= 6) {
         updatePayload.password = password;
       }
@@ -90,19 +104,37 @@ export async function POST(req: Request) {
         // Create new user with email pre-confirmed
         const { data: createData, error: createErr } = await supabaseAdmin.auth.admin.createUser({
           email: normalizedEmail,
-          password: password || "Password123!",
+          password: finalPassword,
           email_confirm: true,
+          user_metadata: {
+            display_username: cleanUsername,
+            display_password: finalPassword,
+            created_at: new Date().toISOString(),
+          },
         });
 
         if (createErr || !createData.user) {
           return NextResponse.json({ error: `Failed to create user: ${createErr?.message}` }, { status: 500 });
         }
         authUser = createData.user;
-      } else if (password) {
-        // Update password if existing user
+      } else {
+        // Update credentials & metadata if existing user
+        const updatePayload: Record<string, any> = {
+          user_metadata: {
+            ...authUser.user_metadata,
+            display_username: cleanUsername,
+            display_password: finalPassword,
+            updated_at: new Date().toISOString(),
+          },
+        };
+
+        if (password) {
+          updatePayload.password = password;
+        }
+
         const { data: updateData, error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(
           authUser.id,
-          { password }
+          updatePayload
         );
         if (updateErr) {
           return NextResponse.json({ error: `Failed to update credentials: ${updateErr.message}` }, { status: 500 });
@@ -138,10 +170,12 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `Account for ${authUser.email || email} successfully provisioned as ${assignedRole}.`,
+      message: `Account for ${cleanUsername} successfully provisioned as ${assignedRole}.`,
       user: {
         id: authUser.id,
         email: authUser.email,
+        displayUsername: cleanUsername,
+        displayPassword: finalPassword,
         role: assignedRole,
       },
     });

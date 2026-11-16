@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { getCurrentUserProfile, updateSettings } from "@/lib/services";
-
-const EDGE_FUNCTION_URL =
-  process.env.SUPABASE_FUNCTION_URL ||
-  "https://hnmvuopdpubdlsveojrq.supabase.co/functions/v1/hyper-action";
+import {
+  renderMemberStatementHtml,
+  getDayName,
+  formatReadableDate,
+  formatMonthYearBangla,
+  StatementDailyItem,
+} from "@/lib/email-statement";
+import { formatBDT, getTodayInDhaka } from "@/lib/date";
 
 const GAS_WEBAPP_URL =
   process.env.GAS_WEBAPP_URL ||
@@ -12,6 +16,40 @@ const GAS_WEBAPP_URL =
 
 const REPORT_SHARED_SECRET =
   process.env.REPORT_SHARED_SECRET || "mill_sec_9e21a4f08c3d7b6a12e5f804";
+
+// Calculate Saturday to Friday weekly cycle in Asia/Dhaka
+function getWeeklyPeriod(targetDateStr?: string): { startDate: string; endDate: string } {
+  const todayDhaka = targetDateStr || getTodayInDhaka();
+  const [y, m, d] = todayDhaka.split("-").map(Number);
+  const baseDate = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  const dayOfWeek = baseDate.getUTCDay(); // 0 = Sun, ..., 5 = Fri, 6 = Sat
+
+  let diffToFriday = 5 - dayOfWeek;
+  const endDateObj = new Date(baseDate.getTime() + diffToFriday * 86400000);
+  const startDateObj = new Date(endDateObj.getTime() - 6 * 86400000);
+
+  const endStr = `${endDateObj.getUTCFullYear()}-${String(endDateObj.getUTCMonth() + 1).padStart(2, "0")}-${String(endDateObj.getUTCDate()).padStart(2, "0")}`;
+  const startStr = `${startDateObj.getUTCFullYear()}-${String(startDateObj.getUTCMonth() + 1).padStart(2, "0")}-${String(startDateObj.getUTCDate()).padStart(2, "0")}`;
+
+  return { startDate: startStr, endDate: endStr };
+}
+
+function getDateRange(startDate: string, endDate: string): string[] {
+  const dates: string[] = [];
+  const [sy, sm, sd] = startDate.split("-").map(Number);
+  const [ey, em, ed] = endDate.split("-").map(Number);
+  const current = new Date(Date.UTC(sy, sm - 1, sd, 12, 0, 0));
+  const end = new Date(Date.UTC(ey, em - 1, ed, 12, 0, 0));
+
+  while (current <= end) {
+    const y = current.getUTCFullYear();
+    const m = String(current.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(current.getUTCDate()).padStart(2, "0");
+    dates.push(`${y}-${m}-${d}`);
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+  return dates;
+}
 
 export async function POST(req: Request) {
   try {
@@ -27,14 +65,30 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { action, autoEmailEnabled, targetEmail, memberId, startDate, endDate, force } = body as {
+    const {
+      action,
+      autoEmailEnabled,
+      targetEmail,
+      memberId,
+      periodType = "this_month",
+      month,
+      year,
+      startDate: rawStartDate,
+      endDate: rawEndDate,
+      force,
+      previewOnly,
+    } = body as {
       action?: "toggle_auto_email" | "test_preview" | "manual_dispatch" | "single_member_statement";
       autoEmailEnabled?: boolean;
       targetEmail?: string;
       memberId?: string;
+      periodType?: "all" | "month" | "week" | "custom" | "this_month" | "last_month" | "this_week";
+      month?: number;
+      year?: number;
       startDate?: string;
       endDate?: string;
       force?: boolean;
+      previewOnly?: boolean;
     };
 
     // Action A: Toggle Automatic Sending Switch (ON / OFF)
@@ -51,56 +105,61 @@ export async function POST(req: Request) {
       });
     }
 
-    // Action B: Send Test Email via Google Apps Script (MailApp) & return preview payload
+    // Action B: Send Test Email via Google Apps Script (MailApp)
     if (action === "test_preview") {
       const recipient = (targetEmail || "mdmostofarahmantuhin2001@gmail.com").trim();
 
-      // 1. Generate preview data from Supabase Edge Function
-      let previewReports: any[] = [];
-      let periodInfo: any = {};
-      try {
-        const edgeRes = await fetch(EDGE_FUNCTION_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-report-secret": REPORT_SHARED_SECRET,
+      const testHtml = renderMemberStatementHtml({
+        periodType: "week",
+        periodTitle: "সাপ্তাহিক মিল ও ব্যালেন্স বিবরণী [টেস্ট]",
+        periodSubtitle: "সাপ্তাহিক মিল ও ব্যালেন্স বিবরণী (Test Preview)",
+        startDate: getTodayInDhaka(),
+        endDate: getTodayInDhaka(),
+        memberName: "Administrator Preview",
+        recipientEmail: recipient,
+        dailyBreakdown: [
+          {
+            date: getTodayInDhaka(),
+            dayName: getDayName(getTodayInDhaka()),
+            lunch: 1,
+            dinner: 1,
+            totalMeals: 2,
+            cost: 120,
           },
-          body: JSON.stringify({
-            action: "test",
-            testRecipient: recipient,
-          }),
-        });
+        ],
+        totalPeriodMeals: 2,
+        totalPeriodCost: 120,
+        totalPeriodDeposits: 500,
+        lifetimeDeposits: 2000,
+        lifetimeCost: 1200,
+        currentBalance: 800,
+        appName: "Mill Manager [TEST PREVIEW]",
+      });
 
-        if (edgeRes.ok) {
-          const edgeData = await edgeRes.json();
-          previewReports = edgeData.reports || [];
-          periodInfo = edgeData.period || {};
-        }
-      } catch (edgeErr) {
-        console.warn("Edge function preview fetch warning:", edgeErr);
-      }
-
-      // 2. Dispatch real test email via Google Apps Script MailApp
       const gasRes = await fetch(GAS_WEBAPP_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           secret: REPORT_SHARED_SECRET,
-          action: "test_preview",
-          targetEmail: recipient,
+          action: "send_single_email",
+          to: recipient,
+          subject: `[Mill Manager TEST] Email Delivery Verification: ${getTodayInDhaka()}`,
+          htmlBody: testHtml,
+          senderName: "Mill Manager System",
         }),
         redirect: "follow",
       });
 
       const gasData = await gasRes.json().catch(() => ({ success: false }));
+      const isSent = gasRes.ok && gasData.success !== false;
 
-      // 3. Log test delivery in email_logs
+      // Log test delivery in email_logs
       await supabase.from("email_logs").insert({
-        report_period_start: periodInfo?.startDate || new Date().toISOString().slice(0, 10),
-        report_period_end: periodInfo?.endDate || new Date().toISOString().slice(0, 10),
+        report_period_start: getTodayInDhaka(),
+        report_period_end: getTodayInDhaka(),
         recipient_type: "test",
         recipient_email: recipient,
-        status: gasRes.ok && (gasData.success !== false) ? "sent" : "failed",
+        status: isSent ? "sent" : "failed",
         metadata: {
           is_test: true,
           gas_response: gasData,
@@ -109,57 +168,226 @@ export async function POST(req: Request) {
       });
 
       return NextResponse.json({
-        success: true,
-        message: `Test email dispatched directly to ${recipient} via Gmail.`,
-        reports: previewReports,
+        success: isSent,
+        message: isSent
+          ? `Test email dispatched directly to ${recipient} via Gmail.`
+          : `Failed to deliver test email: ${gasData.error || "GAS error"}`,
         gasResult: gasData,
       });
     }
 
-    // Action C: Single Member Statement On-Demand Dispatch
+    // Action C: Single Member Statement On-Demand Dispatch (FAST & DIRECT)
     if (action === "single_member_statement") {
       if (!memberId) {
         return NextResponse.json({ error: "Missing required parameter 'memberId'." }, { status: 400 });
       }
 
-      // 1. Prepare exact statement payload from Edge Function
-      const edgeRes = await fetch(EDGE_FUNCTION_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-report-secret": REPORT_SHARED_SECRET,
-        },
-        body: JSON.stringify({
-          action: "prepare",
-          memberId,
-          startDate: startDate || undefined,
-          endDate: endDate || undefined,
-          isManualRun: true,
-          force: true,
-        }),
+      // Fetch member, settings, meals, and deposits in parallel directly from database
+      const [memberRes, settingsRes, mealsRes, depositsRes] = await Promise.all([
+        supabase.from("members").select("*").eq("id", memberId).single(),
+        supabase.from("settings").select("*").eq("id", 1).single(),
+        supabase.from("meal_entries").select("*").eq("member_id", memberId).order("meal_date", { ascending: true }),
+        supabase.from("deposits").select("*").eq("member_id", memberId).order("deposit_date", { ascending: true }),
+      ]);
+
+      if (memberRes.error || !memberRes.data) {
+        return NextResponse.json({ error: `Member not found: ${memberRes.error?.message}` }, { status: 404 });
+      }
+
+      const member = memberRes.data;
+      const settings = settingsRes.data || { app_name: "Mill Manager" };
+      const recipientEmail = (member.email || "").trim();
+
+      if (!previewOnly && !recipientEmail) {
+        return NextResponse.json(
+          { error: `Member "${member.name}" does not have an email address configured.` },
+          { status: 400 }
+        );
+      }
+
+      const meals = mealsRes.data || [];
+      const deposits = depositsRes.data || [];
+
+      // Determine date range and labels based on periodType
+      let startDate = rawStartDate || "";
+      let endDate = rawEndDate || "";
+      let resolvedType: "all" | "month" | "week" | "custom" = "custom";
+      let periodTitle = "মেস মিল ও ব্যালেন্স বিবরণী";
+      let periodSubtitle = "ব্যক্তিগত মিল ও জমার খতিয়ান";
+      let subject = "";
+
+      const today = getTodayInDhaka();
+      const [currentYearStr, currentMonthStr] = today.split("-");
+      const currentYear = parseInt(currentYearStr, 10);
+      const currentMonth = parseInt(currentMonthStr, 10);
+
+      if (periodType === "all") {
+        resolvedType = "all";
+        // Find earliest transaction date
+        const allDates = [
+          ...meals.map((m) => m.meal_date),
+          ...deposits.map((d) => d.deposit_date),
+        ].sort();
+        startDate = allDates[0] || `${currentYear}-01-01`;
+        endDate = today;
+        periodTitle = "সার্বিক মেস হিসাব বিবরণী (All-Time Complete Statement)";
+        periodSubtitle = "মেসে যোগদানের পর থেকে অদ্যাবধি সর্বমোট হিসাব বিবরণী";
+      } else if (periodType === "month" || (month && year)) {
+        resolvedType = "month";
+        const targetYear = year || currentYear;
+        const targetMonth = month || currentMonth;
+        const lastDay = new Date(targetYear, targetMonth, 0).getDate();
+        startDate = `${targetYear}-${String(targetMonth).padStart(2, "0")}-01`;
+        endDate = `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+        const monthLabel = formatMonthYearBangla(targetYear, targetMonth);
+        periodTitle = `মাসিক মিল ও ব্যালেন্স বিবরণী — ${monthLabel}`;
+        periodSubtitle = `${monthLabel} মাসের সম্পূর্ণ মেস হিসাব বিবরণী`;
+      } else if (periodType === "this_month") {
+        resolvedType = "month";
+        const lastDay = new Date(currentYear, currentMonth, 0).getDate();
+        startDate = `${currentYear}-${String(currentMonth).padStart(2, "0")}-01`;
+        endDate = today; // up to today for current month
+        const monthLabel = formatMonthYearBangla(currentYear, currentMonth);
+        periodTitle = `মাসিক মিল ও ব্যালেন্স বিবরণী — ${monthLabel}`;
+        periodSubtitle = `${monthLabel} মাসের বর্তমান তারিখ পর্যন্ত হিসাব`;
+      } else if (periodType === "last_month") {
+        resolvedType = "month";
+        let lastM = currentMonth - 1;
+        let lastY = currentYear;
+        if (lastM < 1) {
+          lastM = 12;
+          lastY -= 1;
+        }
+        const lastDay = new Date(lastY, lastM, 0).getDate();
+        startDate = `${lastY}-${String(lastM).padStart(2, "0")}-01`;
+        endDate = `${lastY}-${String(lastM).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+        const monthLabel = formatMonthYearBangla(lastY, lastM);
+        periodTitle = `মাসিক মিল ও ব্যালেন্স বিবরণী — ${monthLabel}`;
+        periodSubtitle = `${monthLabel} মাসের সম্পূর্ণ মেস হিসাব বিবরণী`;
+      } else if (periodType === "week" || periodType === "this_week") {
+        resolvedType = "week";
+        const weekly = getWeeklyPeriod(today);
+        startDate = weekly.startDate;
+        endDate = weekly.endDate;
+        periodTitle = "সাপ্তাহিক মিল ও ব্যালেন্স বিবরণী (Weekly Statement)";
+        periodSubtitle = `সাপ্তাহিক হিসাব: ${formatReadableDate(startDate)} থেকে ${formatReadableDate(endDate)}`;
+      } else {
+        resolvedType = "custom";
+        if (!startDate || !endDate) {
+          startDate = startDate || `${currentYear}-${String(currentMonth).padStart(2, "0")}-01`;
+          endDate = endDate || today;
+        }
+        periodTitle = "মেস হিসাব বিবরণী (Custom Statement)";
+        periodSubtitle = `হিসাবের সময়কাল: ${formatReadableDate(startDate)} থেকে ${formatReadableDate(endDate)}`;
+      }
+
+      // Build daily breakdown
+      const datesInRange = getDateRange(startDate, endDate);
+      const dailyBreakdown: StatementDailyItem[] = datesInRange.map((date) => {
+        const dayMeals = meals.filter((m) => m.meal_date === date && m.quantity > 0);
+        let lunch = 0;
+        let dinner = 0;
+        let cost = 0;
+
+        for (const m of dayMeals) {
+          const qty = Number(m.quantity) || 0;
+          const price = Number(m.unit_price) || 0;
+          if (m.session === "lunch") lunch += qty;
+          if (m.session === "dinner") dinner += qty;
+          cost += qty * price;
+        }
+
+        return {
+          date,
+          dayName: getDayName(date),
+          lunch,
+          dinner,
+          totalMeals: lunch + dinner,
+          cost,
+        };
       });
 
-      const data = await edgeRes.json();
-      if (!edgeRes.ok) {
-        throw new Error(data.error || "Edge Function returned an error preparing statement");
+      const totalPeriodMeals = dailyBreakdown.reduce((acc, r) => acc + r.totalMeals, 0);
+      const totalPeriodCost = dailyBreakdown.reduce((acc, r) => acc + r.cost, 0);
+
+      // Period deposits
+      const totalPeriodDeposits = deposits
+        .filter((d) => d.deposit_date >= startDate && d.deposit_date <= endDate)
+        .reduce((acc, d) => acc + (Number(d.amount) || 0), 0);
+
+      // Lifetime financials (up to endDate)
+      const lifetimeDeposits = deposits
+        .filter((d) => !endDate || d.deposit_date <= endDate)
+        .reduce((acc, d) => acc + (Number(d.amount) || 0), 0);
+
+      const lifetimeCost = meals
+        .filter((m) => (!endDate || m.meal_date <= endDate) && m.quantity > 0)
+        .reduce((acc, m) => acc + (Number(m.quantity) || 0) * (Number(m.unit_price) || 0), 0);
+
+      const currentBalance = lifetimeDeposits - lifetimeCost;
+
+      // Subject line
+      if (resolvedType === "all") {
+        subject = `[${settings.app_name || "Mill Manager"}] সার্বিক হিসাব বিবরণী - ${member.name} (ব্যালেন্স: ${formatBDT(currentBalance)})`;
+      } else if (resolvedType === "month") {
+        subject = `[${settings.app_name || "Mill Manager"}] মাসিক মিল বিবরণী: ${formatReadableDate(startDate)} - ${formatReadableDate(endDate)} (${member.name})`;
+      } else if (resolvedType === "week") {
+        subject = `[${settings.app_name || "Mill Manager"}] সাপ্তাহিক মিল বিবরণী: ${formatReadableDate(startDate)} - ${formatReadableDate(endDate)} (${member.name})`;
+      } else {
+        subject = `[${settings.app_name || "Mill Manager"}] মেস হিসাব বিবরণী: ${formatReadableDate(startDate)} - ${formatReadableDate(endDate)} (${member.name})`;
       }
 
-      const report = data.reports?.[0];
-      if (!report || !report.recipient_email) {
-        throw new Error("No report generated. Please check that the member has a valid email address configured.");
+      // Generate HTML
+      const htmlBody = renderMemberStatementHtml({
+        periodType: resolvedType,
+        periodTitle,
+        periodSubtitle,
+        startDate,
+        endDate,
+        memberName: member.name,
+        recipientEmail,
+        dailyBreakdown,
+        totalPeriodMeals,
+        totalPeriodCost,
+        totalPeriodDeposits,
+        lifetimeDeposits,
+        lifetimeCost,
+        currentBalance,
+        appName: settings.app_name || "Mill Manager",
+      });
+
+      // If user only requested a preview, return without dispatching
+      if (previewOnly) {
+        return NextResponse.json({
+          success: true,
+          preview: {
+            memberId: member.id,
+            memberName: member.name,
+            recipientEmail,
+            periodType: resolvedType,
+            startDate,
+            endDate,
+            subject,
+            totalPeriodMeals,
+            totalPeriodCost,
+            totalPeriodDeposits,
+            currentBalance,
+            htmlBody,
+          },
+        });
       }
 
-      // 2. Dispatch email directly via Google Apps Script MailApp
+      // Dispatch directly via Google Apps Script MailApp
       const gasRes = await fetch(GAS_WEBAPP_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           secret: REPORT_SHARED_SECRET,
           action: "send_single_email",
-          to: report.recipient_email,
-          subject: report.subject,
-          htmlBody: report.htmlBody,
-          senderName: "Mill Management System",
+          to: recipientEmail,
+          subject,
+          htmlBody,
+          senderName: settings.app_name || "Mill Management System",
         }),
         redirect: "follow",
       });
@@ -167,33 +395,45 @@ export async function POST(req: Request) {
       const gasData = await gasRes.json().catch(() => ({ success: false }));
       const isSent = gasRes.ok && gasData.success !== false;
 
-      // 3. Log single statement dispatch to public.email_logs
+      // Log dispatch to public.email_logs
       await supabase.from("email_logs").insert({
-        report_period_start: data.period?.startDate || startDate || new Date().toISOString().slice(0, 10),
-        report_period_end: data.period?.endDate || endDate || new Date().toISOString().slice(0, 10),
+        report_period_start: startDate,
+        report_period_end: endDate,
         recipient_type: "member",
-        recipient_email: report.recipient_email,
-        member_id: memberId,
+        recipient_email: recipientEmail,
+        member_id: member.id,
         status: isSent ? "sent" : "failed",
         error_message: isSent ? null : JSON.stringify(gasData),
         metadata: {
-          is_on_demand: true,
-          member_name: report.member_name,
-          totalWeeklyMeals: report.metadata?.totalWeeklyMeals,
-          totalWeeklyCost: report.metadata?.totalWeeklyCost,
-          currentBalance: report.metadata?.currentBalance,
+          periodType: resolvedType,
+          member_name: member.name,
+          totalMeals: totalPeriodMeals,
+          totalCost: totalPeriodCost,
+          totalDeposits: totalPeriodDeposits,
+          currentBalance,
           gas_response: gasData,
+          sent_at: new Date().toISOString(),
         },
       });
 
       if (!isSent) {
-        throw new Error(`Gmail delivery failed: ${gasData.error || "Google Apps Script rejected the delivery request"}`);
+        throw new Error(`Gmail delivery failed: ${gasData.error || "Google Apps Script rejected delivery"}`);
       }
 
       return NextResponse.json({
         success: true,
-        message: `Statement for ${report.member_name} (${report.recipient_email}) delivered successfully via Gmail.`,
-        report,
+        message: `Statement for ${member.name} (${recipientEmail}) sent successfully via Gmail!`,
+        summary: {
+          memberName: member.name,
+          recipientEmail,
+          periodType: resolvedType,
+          startDate,
+          endDate,
+          totalPeriodMeals,
+          totalPeriodCost,
+          totalPeriodDeposits,
+          currentBalance,
+        },
       });
     }
 
@@ -220,7 +460,7 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         success: true,
-        message: `Weekly report dispatch completed: ${result.sentCount ?? 0} sent, ${result.skippedCount ?? 0} skipped, ${result.failedCount ?? 0} failed.`,
+        message: `Report dispatch completed: ${result.sentCount ?? 0} sent, ${result.skippedCount ?? 0} skipped, ${result.failedCount ?? 0} failed.`,
         result,
       });
     }

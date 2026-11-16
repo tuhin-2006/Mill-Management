@@ -7,7 +7,6 @@ import {
   Power,
   Eye,
   Trash2,
-  AlertTriangle,
   X,
   Mail,
   KeyRound,
@@ -16,12 +15,17 @@ import {
   Users,
   UtensilsCrossed,
   Wallet,
-  TrendingUp,
-  TrendingDown,
   CheckCircle2,
   AlertCircle,
   EyeOff,
   Filter,
+  Copy,
+  Check,
+  Send,
+  Calendar,
+  Sparkles,
+  RefreshCw,
+  ExternalLink,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -32,7 +36,7 @@ import {
   getGroupSummary,
   getMemberLedger,
 } from "@/lib/services";
-import { formatBDT, formatDate, getPresetDateRange, DatePreset } from "@/lib/date";
+import { formatBDT, formatDate, getTodayInDhaka } from "@/lib/date";
 import { Member, MemberSummary, UserRole } from "@/types";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -44,7 +48,16 @@ import { MigrationAlert } from "@/components/shared/migration-alert";
 import { MemberDetailsModal } from "@/components/members/member-details-modal";
 import { toast } from "sonner";
 
-// Avatar background colors based on name hash
+interface MemberCredentials {
+  userId: string;
+  email: string;
+  displayUsername: string;
+  displayPassword: string | null;
+  role: string;
+  createdAt: string;
+  lastSignInAt: string | null;
+}
+
 const AVATAR_COLORS = [
   "bg-blue-500/10 text-blue-600 border-blue-500/20",
   "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
@@ -63,83 +76,74 @@ function getAvatarColor(name: string): string {
   return AVATAR_COLORS[index];
 }
 
+const MONTH_NAMES_BN = [
+  "জানুয়ারি", "ফেব্রুয়ারি", "মার্চ", "এপ্রিল", "মে", "জুন",
+  "জুলাই", "আগস্ট", "সেপ্টেম্বর", "অক্টোবর", "নভেম্বর", "ডিসেম্বর"
+];
+
 export default function MembersPage() {
   const [members, setMembers] = React.useState<Member[]>([]);
   const [summaries, setSummaries] = React.useState<Record<string, MemberSummary>>({});
+  const [credentialsMap, setCredentialsMap] = React.useState<Record<string, MemberCredentials>>({});
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [isTableMissing, setIsTableMissing] = React.useState(false);
 
-  // Filter & Search states
+  // Search & Filter state
   const [searchQuery, setSearchQuery] = React.useState("");
-  const [statusFilter, setStatusFilter] = React.useState<"all" | "active" | "inactive">("all");
-  const [balanceFilter, setBalanceFilter] = React.useState<"all" | "surplus" | "due">("all");
+  const [statusFilter, setStatusFilter] = React.useState<
+    "all" | "active" | "inactive" | "has_login" | "needs_login" | "surplus" | "due"
+  >("all");
 
-  // Modal states
+  // Modal: Add Member
   const [isAddOpen, setIsAddOpen] = React.useState(false);
   const [newMemberName, setNewMemberName] = React.useState("");
   const [newMemberEmail, setNewMemberEmail] = React.useState("");
   const [newMemberUsername, setNewMemberUsername] = React.useState("");
-  const [newMemberPassword, setNewMemberPassword] = React.useState("");
-  const [createAccountWithMember, setCreateAccountWithMember] = React.useState(false);
+  const [newMemberPassword, setNewMemberPassword] = React.useState("Password123!");
+  const [createAccountWithMember, setCreateAccountWithMember] = React.useState(true);
   const [isAdding, setIsAdding] = React.useState(false);
 
+  // Modal: Edit Member
   const [editMember, setEditMember] = React.useState<Member | null>(null);
   const [editName, setEditName] = React.useState("");
   const [editEmail, setEditEmail] = React.useState("");
   const [isEditing, setIsEditing] = React.useState(false);
 
-  // Dedicated Report Email Modal state
-  const [reportEmailMember, setReportEmailMember] = React.useState<Member | null>(null);
-  const [reportEmailValue, setReportEmailValue] = React.useState("");
-  const [isSavingReportEmail, setIsSavingReportEmail] = React.useState(false);
-
-  // Account provisioning state
-  const [accountMember, setAccountMember] = React.useState<Member | null>(null);
-  const [accountEmail, setAccountEmail] = React.useState("");
-  const [accountPassword, setAccountPassword] = React.useState("");
-  const [accountRole, setAccountRole] = React.useState<UserRole>("member");
-  const [showPassword, setShowPassword] = React.useState(false);
-  const [isProvisioning, setIsProvisioning] = React.useState(false);
-
-  // Delete member state
+  // Modal: Delete Member
   const [memberToDelete, setMemberToDelete] = React.useState<Member | null>(null);
   const [isDeleting, setIsDeleting] = React.useState(false);
 
-  // Detail / history view modal
+  // Modal: Member Details / Ledger History
   const [detailMemberId, setDetailMemberId] = React.useState<string | null>(null);
-  const [detailData, setDetailData] = React.useState<{
-    member: Member | null;
-    dailyMeals: Array<{
-      meal_date: string;
-      day_name: string;
-      lunch: number;
-      dinner: number;
-      total_meals: number;
-      total_cost: number;
-    }>;
-    deposits: Array<{
-      id: string;
-      amount: number;
-      deposit_date: string;
-      note?: string | null;
-    }>;
-    summary: {
-      total_meals: number;
-      total_cost: number;
-      total_deposited: number;
-      balance: number;
-    };
-  } | null>(null);
+  const [detailData, setDetailData] = React.useState<any>(null);
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false);
 
-  // On-demand statement dispatch state
-  const [sendStatementMember, setSendStatementMember] = React.useState<Member | null>(null);
-  const [statementPreset, setStatementPreset] = React.useState<DatePreset | "custom">("this_month");
-  const [statementStartDate, setStatementStartDate] = React.useState("");
-  const [statementEndDate, setStatementEndDate] = React.useState("");
+  // Modal: Login Credentials & Password Manager
+  const [credsMember, setCredsMember] = React.useState<Member | null>(null);
+  const [credsUsername, setCredsUsername] = React.useState("");
+  const [credsPassword, setCredsPassword] = React.useState("");
+  const [credsRole, setCredsRole] = React.useState<UserRole>("member");
+  const [showPassword, setShowPassword] = React.useState(true);
+  const [isSavingCreds, setIsSavingCreds] = React.useState(false);
+  const [copiedItem, setCopiedItem] = React.useState<string | null>(null);
+
+  // Modal: Send Statement Email (Full Statement, Monthly, Weekly)
+  const [stmtMember, setStmtMember] = React.useState<Member | null>(null);
+  const [stmtType, setStmtType] = React.useState<"all" | "month" | "week" | "custom">("month");
+  const [selectedMonth, setSelectedMonth] = React.useState<number>(() => {
+    const today = getTodayInDhaka();
+    return parseInt(today.split("-")[1], 10);
+  });
+  const [selectedYear, setSelectedYear] = React.useState<number>(() => {
+    const today = getTodayInDhaka();
+    return parseInt(today.split("-")[0], 10);
+  });
+  const [customStartDate, setCustomStartDate] = React.useState("");
+  const [customEndDate, setCustomEndDate] = React.useState("");
   const [isSendingStatement, setIsSendingStatement] = React.useState(false);
 
-  // Fetch members and their financial statistics
+  // Load all data (Members, Financial Summaries, Credentials)
   const loadData = React.useCallback(async () => {
     try {
       const supabase = createClient();
@@ -155,6 +159,19 @@ export default function MembersPage() {
         sumMap[s.id] = s;
       }
       setSummaries(sumMap);
+
+      // Fetch user login credentials map
+      try {
+        const credsRes = await fetch("/api/admin/user-credentials");
+        if (credsRes.ok) {
+          const credsJson = await credsRes.json();
+          if (credsJson.credentials) {
+            setCredentialsMap(credsJson.credentials);
+          }
+        }
+      } catch (e) {
+        console.warn("Could not fetch user credentials:", e);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";
       if (msg.includes("schema cache") || msg.includes("PGRST205") || msg.includes("does not exist")) {
@@ -164,57 +181,151 @@ export default function MembersPage() {
       }
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   }, []);
 
   React.useEffect(() => {
-    let ignore = false;
-    async function init() {
-      try {
-        const supabase = createClient();
-        const [membersData, groupSum] = await Promise.all([
-          getMembers(supabase),
-          getGroupSummary(supabase),
-        ]);
+    loadData();
+  }, [loadData]);
 
-        if (ignore) return;
-        setMembers(membersData);
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    loadData();
+  };
 
-        const sumMap: Record<string, MemberSummary> = {};
-        for (const s of groupSum.member_summaries) {
-          sumMap[s.id] = s;
-        }
-        setSummaries(sumMap);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "";
-        if (msg.includes("schema cache") || msg.includes("PGRST205") || msg.includes("does not exist")) {
-          if (!ignore) setIsTableMissing(true);
-        } else {
-          if (!ignore) toast.error("Failed to load members: " + msg);
-        }
-      } finally {
-        if (!ignore) setIsLoading(false);
-      }
+  // Copy helper with feedback
+  const handleCopyText = (text: string, identifier: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedItem(identifier);
+    toast.success("Copied to clipboard!");
+    setTimeout(() => setCopiedItem(null), 2500);
+  };
+
+  // Open Credentials Modal
+  const handleOpenCredentials = (member: Member) => {
+    setCredsMember(member);
+    const existing = credentialsMap[member.id];
+    const defaultUsername =
+      existing?.displayUsername ||
+      member.email?.replace(/@mill\.local$/i, "") ||
+      member.name.toLowerCase().replace(/\s+/g, "");
+
+    setCredsUsername(defaultUsername);
+    setCredsPassword(existing?.displayPassword || "Password123!");
+    setCredsRole((existing?.role as UserRole) || "member");
+    setShowPassword(true);
+  };
+
+  // Save / Update Member Credentials
+  const handleSaveCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!credsMember) return;
+    if (!credsUsername.trim()) {
+      toast.error("Username cannot be empty.");
+      return;
+    }
+    if (!credsPassword || credsPassword.length < 6) {
+      toast.error("Password must be at least 6 characters.");
+      return;
     }
 
-    void init();
-    return () => {
-      ignore = true;
-    };
-  }, []);
-
-  // Open detail view for member
-  const handleViewDetail = async (memberId: string) => {
     try {
-      setDetailMemberId(memberId);
-      setIsLoadingDetail(true);
-      const supabase = createClient();
-      const ledger = await getMemberLedger(supabase, memberId);
-      setDetailData(ledger);
+      setIsSavingCreds(true);
+      const res = await fetch("/api/admin/provision-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          memberId: credsMember.id,
+          email: credsUsername.trim(),
+          password: credsPassword,
+          role: credsRole,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to update login credentials");
+      }
+
+      toast.success(`Login credentials for "${credsMember.name}" saved successfully!`);
+
+      // Update local credentials map immediately
+      setCredentialsMap((prev) => ({
+        ...prev,
+        [credsMember.id]: {
+          userId: data.user.id,
+          email: data.user.email,
+          displayUsername: data.user.displayUsername,
+          displayPassword: data.user.displayPassword,
+          role: data.user.role,
+          createdAt: new Date().toISOString(),
+          lastSignInAt: null,
+        },
+      }));
+
+      loadData();
     } catch (err: unknown) {
-      toast.error("Failed to load member detail: " + (err instanceof Error ? err.message : ""));
+      toast.error("Credential update failed: " + (err instanceof Error ? err.message : ""));
     } finally {
-      setIsLoadingDetail(false);
+      setIsSavingCreds(false);
+    }
+  };
+
+  // Open Statement Dispatch Modal
+  const handleOpenStatementModal = (member: Member) => {
+    setStmtMember(member);
+    setStmtType("month");
+    const today = getTodayInDhaka();
+    const [yStr, mStr] = today.split("-");
+    setSelectedYear(parseInt(yStr, 10));
+    setSelectedMonth(parseInt(mStr, 10));
+    setCustomStartDate(`${yStr}-${mStr}-01`);
+    setCustomEndDate(today);
+  };
+
+  // Dispatch Statement Email
+  const handleSendStatement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stmtMember) return;
+    if (!stmtMember.email?.trim()) {
+      toast.error(`Member "${stmtMember.name}" has no email configured. Edit the member to add their email address.`);
+      return;
+    }
+
+    try {
+      setIsSendingStatement(true);
+      const payload: any = {
+        action: "single_member_statement",
+        memberId: stmtMember.id,
+        periodType: stmtType,
+      };
+
+      if (stmtType === "month") {
+        payload.month = selectedMonth;
+        payload.year = selectedYear;
+      } else if (stmtType === "custom") {
+        payload.startDate = customStartDate;
+        payload.endDate = customEndDate;
+      }
+
+      const res = await fetch("/api/admin/dispatch-reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to dispatch statement email");
+      }
+
+      toast.success(data.message || `Statement email delivered to ${stmtMember.name}!`);
+      setStmtMember(null);
+    } catch (err: unknown) {
+      toast.error("Failed to send statement email: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setIsSendingStatement(false);
     }
   };
 
@@ -231,9 +342,8 @@ export default function MembersPage() {
       const supabase = createClient();
       const created = await addMember(supabase, newMemberName.trim(), newMemberEmail.trim() || null);
 
-      // If user checked "Create login account immediately"
       if (createAccountWithMember && newMemberPassword.trim().length >= 6) {
-        const loginIdent =
+        const username =
           newMemberUsername.trim() ||
           newMemberEmail.trim() ||
           newMemberName.toLowerCase().replace(/\s+/g, "");
@@ -244,14 +354,14 @@ export default function MembersPage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               memberId: created.id,
-              email: loginIdent,
-              password: newMemberPassword,
+              email: username,
+              password: newMemberPassword.trim(),
               role: "member",
             }),
           });
-          toast.success(`Member "${newMemberName}" & Login account created successfully!`);
+          toast.success(`Member "${newMemberName}" & Login account created! Password: ${newMemberPassword}`);
         } catch {
-          toast.warning(`Member created, but account provisioning could not be completed. You can set it from the key icon.`);
+          toast.warning("Member created, but portal login account could not be provisioned.");
         }
       } else {
         toast.success(`Member "${newMemberName}" added successfully.`);
@@ -260,18 +370,11 @@ export default function MembersPage() {
       setNewMemberName("");
       setNewMemberEmail("");
       setNewMemberUsername("");
-      setNewMemberPassword("");
-      setCreateAccountWithMember(false);
+      setNewMemberPassword("Password123!");
       setIsAddOpen(false);
       loadData();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "";
-      if (msg.includes("schema cache") || msg.includes("PGRST205") || msg.includes("does not exist")) {
-        setIsTableMissing(true);
-        toast.error("Database table missing. Please apply migrations.");
-      } else {
-        toast.error("Error adding member: " + msg);
-      }
+      toast.error("Error adding member: " + (err instanceof Error ? err.message : ""));
     } finally {
       setIsAdding(false);
     }
@@ -299,82 +402,10 @@ export default function MembersPage() {
     }
   };
 
-  // Save / Update Member Notification/Report Email
-  const handleSaveReportEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!reportEmailMember) return;
-
-    try {
-      setIsSavingReportEmail(true);
-      const supabase = createClient();
-      await updateMember(supabase, reportEmailMember.id, {
-        email: reportEmailValue.trim() || null,
-      });
-
-      toast.success(
-        reportEmailValue.trim()
-          ? `Report email for "${reportEmailMember.name}" saved as ${reportEmailValue.trim()}.`
-          : `Report email for "${reportEmailMember.name}" cleared.`
-      );
-      setReportEmailMember(null);
-      loadData();
-    } catch (err: unknown) {
-      toast.error("Failed to update report email: " + (err instanceof Error ? err.message : ""));
-    } finally {
-      setIsSavingReportEmail(false);
-    }
-  };
-
-  // Provision / Update Member Web Portal Login Credentials
-  const handleProvisionAccount = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!accountMember || !accountEmail.trim()) {
-      toast.error("Please enter a username or email address.");
-      return;
-    }
-    if (!accountPassword || accountPassword.length < 6) {
-      toast.error("Password must be at least 6 characters.");
-      return;
-    }
-
-    try {
-      setIsProvisioning(true);
-      const res = await fetch("/api/admin/provision-user", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          memberId: accountMember.id,
-          email: accountEmail.trim(),
-          password: accountPassword,
-          role: accountRole,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to provision login credentials");
-      }
-
-      toast.success(`Login credentials for "${accountMember.name}" saved successfully!`);
-      setAccountMember(null);
-      setAccountPassword("");
-      loadData();
-    } catch (err: unknown) {
-      toast.error("Provisioning failed: " + (err instanceof Error ? err.message : ""));
-    } finally {
-      setIsProvisioning(false);
-    }
-  };
-
   // Toggle Active / Inactive
   const handleToggleStatus = async (member: Member) => {
     const nextStatus = member.status === "active" ? "inactive" : "active";
-    const confirmMsg =
-      nextStatus === "inactive"
-        ? `Deactivate member "${member.name}"? They will no longer appear in daily meal attendance, but all history is preserved.`
-        : `Reactivate member "${member.name}"?`;
-
-    if (!confirm(confirmMsg)) return;
+    if (!confirm(`Change status of "${member.name}" to ${nextStatus}?`)) return;
 
     try {
       const supabase = createClient();
@@ -403,230 +434,191 @@ export default function MembersPage() {
     }
   };
 
-  // Send On-Demand Statement Email
-  const handleStatementPreset = (preset: DatePreset) => {
-    setStatementPreset(preset);
-    if (preset === "all") {
-      setStatementStartDate("");
-      setStatementEndDate("");
-    } else {
-      const r = getPresetDateRange(preset);
-      setStatementStartDate(r.startDate);
-      setStatementEndDate(r.endDate);
-    }
-  };
-
-  const handleSendStatement = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!sendStatementMember) return;
-    if (!sendStatementMember.email?.trim()) {
-      toast.error(`Member "${sendStatementMember.name}" does not have an email address configured. Edit the member to add an email first.`);
-      return;
-    }
-
+  // Open detail view for member
+  const handleViewDetail = async (memberId: string) => {
     try {
-      setIsSendingStatement(true);
-      const res = await fetch("/api/admin/dispatch-reports", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "single_member_statement",
-          memberId: sendStatementMember.id,
-          startDate: statementStartDate || undefined,
-          endDate: statementEndDate || undefined,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to dispatch statement email");
-      }
-
-      toast.success(`Statement email dispatched to ${sendStatementMember.name} (${sendStatementMember.email})!`);
-      setSendStatementMember(null);
+      setDetailMemberId(memberId);
+      setIsLoadingDetail(true);
+      const supabase = createClient();
+      const ledger = await getMemberLedger(supabase, memberId);
+      setDetailData(ledger);
     } catch (err: unknown) {
-      toast.error("Failed to send statement email: " + (err instanceof Error ? err.message : ""));
+      toast.error("Failed to load member detail: " + (err instanceof Error ? err.message : ""));
     } finally {
-      setIsSendingStatement(false);
+      setIsLoadingDetail(false);
     }
   };
-
-  // Calculate Group Totals for Overview Header
-  const activeMembers = members.filter((m) => m.status === "active");
-  const inactiveMembers = members.filter((m) => m.status === "inactive");
-  const totalMealsAll = Object.values(summaries).reduce((acc, s) => acc + s.total_meals, 0);
-  const totalDepositsAll = Object.values(summaries).reduce((acc, s) => acc + s.total_deposited, 0);
-  const totalMealCostAll = Object.values(summaries).reduce((acc, s) => acc + s.total_meal_cost, 0);
-  const totalNetBalance = totalDepositsAll - totalMealCostAll;
 
   // Filtered members list
   const filteredMembers = React.useMemo(() => {
-    return members.filter((member) => {
-      // 1. Search Query
+    return members.filter((m) => {
+      const sum = summaries[m.id];
+      const creds = credentialsMap[m.id];
       const q = searchQuery.toLowerCase().trim();
+
       const matchesSearch =
         !q ||
-        member.name.toLowerCase().includes(q) ||
-        (member.email && member.email.toLowerCase().includes(q));
+        m.name.toLowerCase().includes(q) ||
+        (m.email && m.email.toLowerCase().includes(q)) ||
+        (creds?.displayUsername && creds.displayUsername.toLowerCase().includes(q));
 
-      // 2. Status Filter
-      const matchesStatus =
-        statusFilter === "all" || member.status === statusFilter;
+      if (!matchesSearch) return false;
 
-      // 3. Balance Filter
-      const sum = summaries[member.id] || { balance: 0 };
-      const matchesBalance =
-        balanceFilter === "all" ||
-        (balanceFilter === "surplus" && sum.balance >= 0) ||
-        (balanceFilter === "due" && sum.balance < 0);
+      if (statusFilter === "active") return m.status === "active";
+      if (statusFilter === "inactive") return m.status === "inactive";
+      if (statusFilter === "has_login") return Boolean(m.user_id || creds);
+      if (statusFilter === "needs_login") return !m.user_id && !creds;
+      if (statusFilter === "surplus") return (sum?.balance || 0) >= 0;
+      if (statusFilter === "due") return (sum?.balance || 0) < 0;
 
-      return matchesSearch && matchesStatus && matchesBalance;
+      return true;
     });
-  }, [members, summaries, searchQuery, statusFilter, balanceFilter]);
+  }, [members, summaries, credentialsMap, searchQuery, statusFilter]);
+
+  // Aggregate stats
+  const totalActive = members.filter((m) => m.status === "active").length;
+  const totalWithLogin = members.filter((m) => m.user_id || credentialsMap[m.id]).length;
+  const totalWithEmail = members.filter((m) => m.email && m.email.trim()).length;
+  const totalBalance = Object.values(summaries).reduce((acc, s) => acc + (s.balance || 0), 0);
+
+  const monthsList = [
+    { value: 11, label: "নভেম্বর ২০২৬ (November 2026)" },
+    { value: 10, label: "অক্টোবর ২০২৬ (October 2026)" },
+    { value: 9, label: "সেপ্টেম্বর ২০২৬ (September 2026)" },
+    { value: 8, label: "আগস্ট ২০২৬ (August 2026)" },
+    { value: 7, label: "জুলাই ২০২৬ (July 2026)" },
+    { value: 6, label: "জুন ২০২৬ (June 2026)" },
+    { value: 5, label: "মে ২০২৬ (May 2026)" },
+    { value: 4, label: "এপ্রিল ২০২৬ (April 2026)" },
+    { value: 3, label: "মার্চ ২০২৬ (March 2026)" },
+    { value: 2, label: "ফেব্রুয়ারি ২০২৬ (February 2026)" },
+    { value: 1, label: "জানুয়ারি ২০২৬ (January 2026)" },
+  ];
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
+      {/* 1. PAGE HEADER */}
       <PageHeader
-        title="Members & Meal Roster"
-        description="Comprehensive management of mess members, meal statistics, deposits, and individual balances."
+        title="Members & Access Control"
+        description="সদস্য ব্যবস্থাপনা, লগইন ইউজারনেম-পাসওয়ার্ড দেখা ও নিয়ন্ত্রণ, এবং চাহিদামত মিল বিবরণী পাঠানো।"
         actions={
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => setIsAddOpen(true)}
-            className="gap-1.5 shadow-xs"
-          >
-            <UserPlus className="h-4 w-4" />
-            <span>Add New Member</span>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefresh}
+              isLoading={isRefreshing}
+              className="gap-1.5"
+            >
+              <RefreshCw className="h-4 w-4" />
+              <span>Refresh</span>
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                setNewMemberName("");
+                setNewMemberEmail("");
+                setNewMemberUsername("");
+                setNewMemberPassword("Password123!");
+                setCreateAccountWithMember(true);
+                setIsAddOpen(true);
+              }}
+              className="gap-1.5 shadow-xs"
+            >
+              <UserPlus className="h-4 w-4" />
+              <span>Add Member</span>
+            </Button>
+          </div>
         }
       />
 
       <MigrationAlert isTableMissing={isTableMissing} />
 
-      {/* 1. Group Financial & Member Overview Cards */}
+      {/* 2. TOP METRIC OVERVIEW CARDS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {/* Active Members Card */}
+        {/* Total Members */}
         <Card className="border-border/80 shadow-2xs">
           <CardContent className="p-4 sm:p-5">
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span className="text-xs font-semibold uppercase tracking-wider">Members</span>
-              <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-                <Users className="h-4 w-4" />
-              </div>
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
+              Total Members
+            </span>
+            <div className="text-xl sm:text-2xl font-bold text-foreground mt-1 flex items-center justify-between">
+              <span>{members.length}</span>
+              <Users className="h-5 w-5 text-primary/70" />
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-foreground">{members.length}</span>
-              <span className="text-xs text-muted-foreground font-medium">Total</span>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              <span className="text-emerald-600 font-semibold">{totalActive} Active</span> &bull; {members.length - totalActive} Inactive
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Portal Login Accounts */}
+        <Card className="border-border/80 shadow-2xs">
+          <CardContent className="p-4 sm:p-5">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
+              Web Portal Logins
+            </span>
+            <div className="text-xl sm:text-2xl font-bold text-foreground mt-1 flex items-center justify-between">
+              <span>{totalWithLogin} / {members.length}</span>
+              <KeyRound className="h-5 w-5 text-amber-500/80" />
             </div>
-            <div className="mt-2 flex items-center gap-1.5 text-xs">
-              <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-emerald-700 dark:text-emerald-400 font-medium">
-                {activeMembers.length} Active
-              </span>
-              {inactiveMembers.length > 0 && (
-                <span className="text-muted-foreground">
-                  • {inactiveMembers.length} Inactive
+            <p className="text-[11px] text-muted-foreground mt-1">
+              {members.length - totalWithLogin > 0 ? (
+                <span className="text-amber-600 font-semibold">
+                  {members.length - totalWithLogin} needs login setup
                 </span>
+              ) : (
+                <span className="text-emerald-600 font-semibold">All accounts configured</span>
               )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Total Meals Card */}
-        <Card className="border-border/80 shadow-2xs">
-          <CardContent className="p-4 sm:p-5">
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span className="text-xs font-semibold uppercase tracking-wider">Total Meals</span>
-              <div className="h-8 w-8 rounded-lg bg-amber-500/10 text-amber-600 flex items-center justify-center">
-                <UtensilsCrossed className="h-4 w-4" />
-              </div>
-            </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-foreground">{totalMealsAll}</span>
-              <span className="text-xs text-muted-foreground font-medium">Served</span>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Expense: <strong className="text-foreground">{formatBDT(totalMealCostAll)}</strong>
             </p>
           </CardContent>
         </Card>
 
-        {/* Total Deposits Card */}
+        {/* Report Emails */}
         <Card className="border-border/80 shadow-2xs">
           <CardContent className="p-4 sm:p-5">
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span className="text-xs font-semibold uppercase tracking-wider">Group Deposits</span>
-              <div className="h-8 w-8 rounded-lg bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
-                <Wallet className="h-4 w-4" />
-              </div>
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
+              Statement Recipients
+            </span>
+            <div className="text-xl sm:text-2xl font-bold text-foreground mt-1 flex items-center justify-between">
+              <span>{totalWithEmail} Members</span>
+              <Mail className="h-5 w-5 text-blue-500/80" />
             </div>
-            <div className="mt-2 flex items-baseline gap-1">
-              <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                {formatBDT(totalDepositsAll)}
-              </span>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Collected from all members
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Configured for automated & on-demand reports
             </p>
           </CardContent>
         </Card>
 
-        {/* Net Treasury Balance Card */}
+        {/* Total Mess Net Balance */}
         <Card className="border-border/80 shadow-2xs">
           <CardContent className="p-4 sm:p-5">
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span className="text-xs font-semibold uppercase tracking-wider">Treasury Balance</span>
-              <div
-                className={`h-8 w-8 rounded-lg flex items-center justify-center ${
-                  totalNetBalance >= 0
-                    ? "bg-emerald-500/10 text-emerald-600"
-                    : "bg-destructive/10 text-destructive"
-                }`}
-              >
-                {totalNetBalance >= 0 ? (
-                  <TrendingUp className="h-4 w-4" />
-                ) : (
-                  <TrendingDown className="h-4 w-4" />
-                )}
-              </div>
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
+              Total Mess Balance
+            </span>
+            <div className={`text-xl sm:text-2xl font-bold mt-1 ${totalBalance >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+              {formatBDT(totalBalance)}
             </div>
-            <div className="mt-2 flex items-baseline gap-1">
-              <span
-                className={`text-2xl font-bold ${
-                  totalNetBalance >= 0
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-destructive"
-                }`}
-              >
-                {formatBDT(totalNetBalance)}
-              </span>
-            </div>
-            <div className="mt-2">
-              <Badge
-                variant={totalNetBalance >= 0 ? "success" : "destructive"}
-                className="text-[10px] py-0 px-1.5 font-medium"
-              >
-                {totalNetBalance >= 0 ? "Treasury Surplus" : "Deficit / Uncollected Dues"}
-              </Badge>
-            </div>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              {totalBalance >= 0 ? "Net Surplus in Fund" : "Net Deficit in Fund"}
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* 2. Search, Filter & View Controls */}
+      {/* 3. FILTER & SEARCH CONTROLS */}
       <Card className="border-border/80 shadow-2xs">
         <CardContent className="p-3.5 sm:p-4">
           <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
             {/* Search Input */}
             <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search member by name or email..."
+                placeholder="Search by name, username, or email..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 pr-8 h-9 text-xs sm:text-sm bg-background"
+                className="pl-9 h-9 text-xs sm:text-sm"
               />
               {searchQuery && (
                 <button
@@ -639,544 +631,830 @@ export default function MembersPage() {
               )}
             </div>
 
-            {/* Filter Pills */}
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Status Filter */}
-              <div className="flex items-center rounded-lg border border-border bg-muted/30 p-0.5 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setStatusFilter("all")}
-                  className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
-                    statusFilter === "all"
-                      ? "bg-background text-foreground shadow-xs"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  All ({members.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStatusFilter("active")}
-                  className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
-                    statusFilter === "active"
-                      ? "bg-background text-foreground shadow-xs font-semibold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Active ({activeMembers.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStatusFilter("inactive")}
-                  className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
-                    statusFilter === "inactive"
-                      ? "bg-background text-foreground shadow-xs font-semibold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Inactive ({inactiveMembers.length})
-                </button>
-              </div>
-
-              {/* Balance Filter */}
-              <select
-                value={balanceFilter}
-                onChange={(e) => setBalanceFilter(e.target.value as "all" | "surplus" | "due")}
-                className="h-8 px-2.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            {/* Quick Filters */}
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setStatusFilter("all")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+                  statusFilter === "all"
+                    ? "bg-primary text-primary-foreground shadow-2xs"
+                    : "bg-muted text-muted-foreground hover:text-foreground"
+                }`}
               >
-                <option value="all">All Balances</option>
-                <option value="surplus">Surplus (In Credit +৳)</option>
-                <option value="due">Due / Deficit (-৳)</option>
-              </select>
+                All ({members.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter("active")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+                  statusFilter === "active"
+                    ? "bg-primary text-primary-foreground shadow-2xs"
+                    : "bg-muted text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Active ({totalActive})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter("has_login")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+                  statusFilter === "has_login"
+                    ? "bg-primary text-primary-foreground shadow-2xs"
+                    : "bg-muted text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Login Active ({totalWithLogin})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter("needs_login")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+                  statusFilter === "needs_login"
+                    ? "bg-amber-600 text-white shadow-2xs"
+                    : "bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20"
+                }`}
+              >
+                Needs Login ({members.length - totalWithLogin})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter("due")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+                  statusFilter === "due"
+                    ? "bg-rose-600 text-white shadow-2xs"
+                    : "bg-rose-500/10 text-rose-700 dark:text-rose-300 hover:bg-rose-500/20"
+                }`}
+              >
+                Due / বকেয়া
+              </button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* 3. Main Members Table & Cards Container */}
-      <Card className="border-border/80 shadow-2xs overflow-hidden">
+      {/* 4. MAIN MEMBERS TABLE (DESKTOP) */}
+      <Card className="border-border/80 shadow-2xs overflow-hidden hidden md:block">
         <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border/60 bg-muted/20">
-          <div>
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Users className="h-4 w-4 text-primary" />
-              <span>Group Roster</span>
-              <span className="text-xs font-normal text-muted-foreground">
-                ({filteredMembers.length} {filteredMembers.length === 1 ? "member" : "members"} displayed)
-              </span>
-            </CardTitle>
-          </div>
+          <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <Users className="h-4 w-4 text-primary" />
+            <span>Member Roster & Portal Credentials ({filteredMembers.length})</span>
+          </CardTitle>
+          <span className="text-xs text-muted-foreground">
+            Click on 🔑 <strong>Login Info</strong> to view username & password, or ✉️ <strong>Mail</strong> to send statements.
+          </span>
         </CardHeader>
         <CardContent className="p-0">
-          {isLoading ? (
-            <div className="py-16 text-center space-y-3">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
-              <p className="text-sm text-muted-foreground">Loading members roster and balances...</p>
-            </div>
-          ) : filteredMembers.length === 0 ? (
-            <div className="py-16 text-center space-y-3">
-              <Users className="h-10 w-10 text-muted-foreground/40 mx-auto" />
-              <p className="text-sm font-medium text-foreground">No members match your criteria</p>
-              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                {searchQuery || statusFilter !== "all" || balanceFilter !== "all"
-                  ? "Try resetting your search query or filter options."
-                  : "Click 'Add New Member' to start building your mess group."}
-              </p>
+          {filteredMembers.length === 0 ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">
+              {members.length === 0 ? "No members found. Click '+ Add Member' to create one." : "No members match your search criteria."}
             </div>
           ) : (
-            <>
-              {/* Desktop Table View */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="text-[11px] font-semibold uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border/70">
-                    <tr>
-                      <th className="py-3 px-4">Member</th>
-                      <th className="py-3 px-3">Report Email</th>
-                      <th className="py-3 px-3">Web Login</th>
-                      <th className="py-3 px-3 text-center">Status</th>
-                      <th className="py-3 px-3 text-center">Meals</th>
-                      <th className="py-3 px-4 text-right">Meal Cost</th>
-                      <th className="py-3 px-4 text-right">Deposited</th>
-                      <th className="py-3 px-4 text-right">Net Balance</th>
-                      <th className="py-3 px-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/60">
-                    {filteredMembers.map((member) => {
-                      const sum = summaries[member.id] || {
-                        total_meals: 0,
-                        total_meal_cost: 0,
-                        total_deposited: 0,
-                        balance: 0,
-                      };
-                      const isPositive = sum.balance >= 0;
-                      const avatarColor = getAvatarColor(member.name);
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="text-[11px] font-semibold uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border/70">
+                  <tr>
+                    <th className="py-3 px-4">Member</th>
+                    <th className="py-3 px-3">Portal Login (ইউজারনেম ও পাসওয়ার্ড)</th>
+                    <th className="py-3 px-3">Report Email</th>
+                    <th className="py-3 px-3 text-center">Meals</th>
+                    <th className="py-3 px-3 text-right">Expense</th>
+                    <th className="py-3 px-3 text-right">Deposited</th>
+                    <th className="py-3 px-4 text-right">Net Balance</th>
+                    <th className="py-3 px-4 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {filteredMembers.map((member) => {
+                    const sum = summaries[member.id] || {
+                      total_meals: 0,
+                      total_meal_cost: 0,
+                      total_deposited: 0,
+                      balance: 0,
+                    };
+                    const creds = credentialsMap[member.id];
+                    const isAdvance = sum.balance >= 0;
+                    const avatarColor = getAvatarColor(member.name);
 
-                      return (
-                        <tr
-                          key={member.id}
-                          className="hover:bg-muted/30 transition-colors group"
-                        >
-                          {/* Member Info */}
-                          <td className="py-3.5 px-4">
-                            <div className="flex items-center gap-3">
-                              <div
-                                className={`h-9 w-9 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border ${avatarColor}`}
-                              >
-                                {member.name.slice(0, 2).toUpperCase()}
-                              </div>
-                              <div className="min-w-0">
-                                <span className="font-semibold text-foreground text-sm block truncate">
-                                  {member.name}
-                                </span>
-                              </div>
+                    return (
+                      <tr key={member.id} className="hover:bg-muted/30 transition-colors">
+                        {/* Member Name & Status */}
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`h-9 w-9 rounded-full flex items-center justify-center font-bold text-xs border ${avatarColor} shrink-0`}>
+                              {member.name.slice(0, 2).toUpperCase()}
                             </div>
-                          </td>
-
-                          {/* Report Email (Separate from Login) */}
-                          <td className="py-3.5 px-3">
-                            {member.email ? (
-                              <div className="flex items-center gap-1.5 group/email">
-                                <span className="text-xs font-mono text-foreground truncate max-w-[160px]" title={member.email}>
-                                  {member.email}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setReportEmailMember(member);
-                                    setReportEmailValue(member.email || "");
-                                  }}
-                                  className="p-1 rounded text-muted-foreground hover:text-blue-600 hover:bg-blue-500/10 transition-colors"
-                                  title="Edit Report Email Address"
-                                >
-                                  <Edit2 className="h-3 w-3" />
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setReportEmailMember(member);
-                                  setReportEmailValue("");
-                                }}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-blue-600 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 transition-colors"
-                                title="Click to set recipient email"
+                            <div className="min-w-0">
+                              <span className="font-semibold text-foreground block truncate">
+                                {member.name}
+                              </span>
+                              <Badge
+                                variant={member.status === "active" ? "success" : "secondary"}
+                                className="text-[10px] px-1.5 py-0 mt-0.5"
                               >
-                                <Mail className="h-3 w-3" />
-                                <span>+ Set Email</span>
-                              </button>
-                            )}
-                          </td>
-
-                          {/* Web Login Account (Separate from Report Email) */}
-                          <td className="py-3.5 px-3">
-                            {member.user_id ? (
-                              <div className="flex items-center gap-1.5">
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
-                                  <CheckCircle2 className="h-3 w-3" />
-                                  <span>Active</span>
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setAccountMember(member);
-                                    setAccountEmail(member.email || `${member.name.toLowerCase().replace(/\s+/g, "")}@mill.local`);
-                                    setAccountPassword("");
-                                    setAccountRole("member");
-                                  }}
-                                  className="p-1 rounded text-muted-foreground hover:text-amber-600 hover:bg-amber-500/10 transition-colors"
-                                  title="Reset Login Password"
-                                >
-                                  <KeyRound className="h-3 w-3" />
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setAccountMember(member);
-                                  setAccountEmail(member.email || `${member.name.toLowerCase().replace(/\s+/g, "")}@mill.local`);
-                                  setAccountPassword("");
-                                  setAccountRole("member");
-                                }}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-amber-600 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 transition-colors"
-                                title="Click to setup web login credentials"
-                              >
-                                <KeyRound className="h-3 w-3" />
-                                <span>+ Setup Login</span>
-                              </button>
-                            )}
-                          </td>
-
-                          {/* Status */}
-                          <td className="py-3.5 px-3 text-center">
-                            <Badge
-                              variant={member.status === "active" ? "success" : "secondary"}
-                              className="text-[11px] font-medium"
-                            >
-                              {member.status}
-                            </Badge>
-                          </td>
-
-                          {/* Meals Count */}
-                          <td className="py-3.5 px-3 text-center font-semibold text-foreground">
-                            <span className="inline-block px-2 py-0.5 rounded-md bg-muted/60 text-xs font-mono">
-                              {sum.total_meals}
-                            </span>
-                          </td>
-
-                          {/* Meal Cost */}
-                          <td className="py-3.5 px-4 text-right text-muted-foreground font-medium font-mono">
-                            {formatBDT(sum.total_meal_cost)}
-                          </td>
-
-                          {/* Total Deposited */}
-                          <td className="py-3.5 px-4 text-right font-semibold text-emerald-600 dark:text-emerald-400 font-mono">
-                            {formatBDT(sum.total_deposited)}
-                          </td>
-
-                          {/* Current Balance */}
-                          <td className="py-3.5 px-4 text-right font-mono">
-                            <span
-                              className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold ${
-                                isPositive
-                                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
-                                  : "bg-destructive/10 text-destructive border border-destructive/20"
-                              }`}
-                            >
-                              {formatBDT(sum.balance)}
-                            </span>
-                          </td>
-
-                          {/* Action Buttons */}
-                          <td className="py-3.5 px-4 text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              {/* View Details */}
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={() => handleViewDetail(member.id)}
-                                className="h-8 w-8 text-primary hover:bg-primary/10 transition-colors border-border/80"
-                                title="View Member Ledger & History"
-                              >
-                                <Eye className="h-3.5 w-3.5" />
-                              </Button>
-
-                              {/* Send On-Demand Statement Email */}
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={() => {
-                                  setSendStatementMember(member);
-                                  handleStatementPreset("this_month");
-                                }}
-                                className="h-8 w-8 text-blue-600 hover:bg-blue-500/10 transition-colors border-border/80"
-                                title="Send On-Demand Statement Email"
-                              >
-                                <Mail className="h-3.5 w-3.5" />
-                              </Button>
-
-                              {/* Edit Name */}
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={() => {
-                                  setEditMember(member);
-                                  setEditName(member.name);
-                                  setEditEmail(member.email || "");
-                                }}
-                                className="h-8 w-8 text-muted-foreground hover:text-foreground transition-colors border-border/80"
-                                title="Edit Member Name"
-                              >
-                                <Edit2 className="h-3.5 w-3.5" />
-                              </Button>
-
-                              {/* Activate / Deactivate Toggle */}
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={() => handleToggleStatus(member)}
-                                className={`h-8 w-8 border-border/80 transition-colors ${
-                                  member.status === "active"
-                                    ? "text-amber-600 hover:bg-amber-500/10"
-                                    : "text-emerald-600 hover:bg-emerald-500/10"
-                                }`}
-                                title={member.status === "active" ? "Deactivate Member" : "Activate Member"}
-                              >
-                                <Power className="h-3.5 w-3.5" />
-                              </Button>
-
-                              {/* Delete Member */}
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={() => setMemberToDelete(member)}
-                                className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors border-border/80"
-                                title="Delete Member"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
+                                {member.status}
+                              </Badge>
                             </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Mobile Phone Cards View */}
-              <div className="md:hidden divide-y divide-border/60">
-                {filteredMembers.map((member) => {
-                  const sum = summaries[member.id] || {
-                    total_meals: 0,
-                    total_meal_cost: 0,
-                    total_deposited: 0,
-                    balance: 0,
-                  };
-                  const isPositive = sum.balance >= 0;
-                  const avatarColor = getAvatarColor(member.name);
-
-                  return (
-                    <div key={member.id} className="p-4 space-y-3 bg-card/60">
-                      {/* Top Row: Avatar, Name, Status, Balance */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div
-                            className={`h-10 w-10 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border ${avatarColor}`}
-                          >
-                            {member.name.slice(0, 2).toUpperCase()}
                           </div>
-                          <div className="min-w-0">
-                            <span className="font-semibold text-foreground text-sm truncate block">
-                              {member.name}
-                            </span>
-                            <Badge
-                              variant={member.status === "active" ? "success" : "secondary"}
-                              className="text-[10px] mt-0.5"
+                        </td>
+
+                        {/* Portal Login Credentials (Username & Password Access) */}
+                        <td className="py-3.5 px-3">
+                          {member.user_id || creds ? (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenCredentials(member)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 transition-all cursor-pointer group"
+                              title="Click to view full username and password"
                             >
-                              {member.status}
-                            </Badge>
-                          </div>
-                        </div>
+                              <KeyRound className="h-3.5 w-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
+                              <span className="font-mono font-semibold">
+                                {creds?.displayUsername || member.name.toLowerCase().replace(/\s+/g, "")}
+                              </span>
+                              <span className="text-[10px] bg-emerald-600/20 px-1 py-0.2 rounded text-emerald-700 dark:text-emerald-200">
+                                View Pass
+                              </span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenCredentials(member)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 transition-all cursor-pointer"
+                              title="Setup login credentials for this member"
+                            >
+                              <KeyRound className="h-3.5 w-3.5 text-amber-600" />
+                              <span>+ Setup Login</span>
+                            </button>
+                          )}
+                        </td>
 
-                        <div className="text-right">
-                          <span className="text-[10px] text-muted-foreground block">Net Balance</span>
+                        {/* Report Email */}
+                        <td className="py-3.5 px-3">
+                          {member.email ? (
+                            <span className="font-mono text-xs text-muted-foreground block truncate max-w-[180px]" title={member.email}>
+                              {member.email}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditMember(member);
+                                setEditName(member.name);
+                                setEditEmail("");
+                              }}
+                              className="text-[11px] text-blue-600 hover:underline flex items-center gap-1"
+                            >
+                              <span>+ Add Email</span>
+                            </button>
+                          )}
+                        </td>
+
+                        {/* Meals Count */}
+                        <td className="py-3.5 px-3 text-center">
+                          <span className="inline-block px-2 py-0.5 rounded-md bg-muted/60 text-xs font-mono font-bold text-foreground">
+                            {sum.total_meals}
+                          </span>
+                        </td>
+
+                        {/* Meal Cost */}
+                        <td className="py-3.5 px-3 text-right font-mono text-xs text-muted-foreground">
+                          {formatBDT(sum.total_meal_cost)}
+                        </td>
+
+                        {/* Deposited */}
+                        <td className="py-3.5 px-3 text-right font-mono text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
+                          {formatBDT(sum.total_deposited)}
+                        </td>
+
+                        {/* Net Balance */}
+                        <td className="py-3.5 px-4 text-right">
                           <span
-                            className={`text-sm font-bold font-mono ${
-                              isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"
+                            className={`inline-block px-2.5 py-1 rounded-full text-xs font-mono font-bold border ${
+                              isAdvance
+                                ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                : "bg-rose-500/10 text-rose-600 border-rose-500/20"
                             }`}
                           >
                             {formatBDT(sum.balance)}
                           </span>
-                        </div>
-                      </div>
+                        </td>
 
-                      {/* Separate Email & Login Row */}
-                      <div className="grid grid-cols-2 gap-2 p-2.5 rounded-lg bg-muted/30 border border-border/50 text-xs">
-                        <div>
-                          <span className="text-[10px] text-muted-foreground block font-medium">Report Email:</span>
-                          {member.email ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setReportEmailMember(member);
-                                setReportEmailValue(member.email || "");
-                              }}
-                              className="text-left font-mono text-[11px] text-foreground truncate block hover:text-blue-600 transition-colors mt-0.5"
+                        {/* Actions */}
+                        <td className="py-3.5 px-4 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            {/* Send Statement Email */}
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => handleOpenStatementModal(member)}
+                              className="h-8 w-8 text-blue-600 hover:bg-blue-500/10 transition-colors border-border/80"
+                              title="Send Statement Email (Full or Monthly)"
                             >
-                              {member.email}
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setReportEmailMember(member);
-                                setReportEmailValue("");
-                              }}
-                              className="text-[11px] text-blue-600 font-semibold hover:underline mt-0.5 block"
+                              <Mail className="h-3.5 w-3.5" />
+                            </Button>
+
+                            {/* View History */}
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => handleViewDetail(member.id)}
+                              className="h-8 w-8 text-muted-foreground hover:text-foreground transition-colors border-border/80"
+                              title="View Ledger & History"
                             >
-                              + Set Email
-                            </button>
-                          )}
-                        </div>
+                              <Eye className="h-3.5 w-3.5" />
+                            </Button>
 
-                        <div>
-                          <span className="text-[10px] text-muted-foreground block font-medium">Web Login:</span>
-                          {member.user_id ? (
-                            <button
-                              type="button"
+                            {/* Edit Name & Email */}
+                            <Button
+                              variant="outline"
+                              size="icon"
                               onClick={() => {
-                                setAccountMember(member);
-                                setAccountEmail(member.email || "");
-                                setAccountPassword("");
-                                setAccountRole("member");
+                                setEditMember(member);
+                                setEditName(member.name);
+                                setEditEmail(member.email || "");
                               }}
-                              className="text-[11px] text-emerald-600 font-semibold hover:underline mt-0.5 flex items-center gap-1"
+                              className="h-8 w-8 text-muted-foreground hover:text-foreground transition-colors border-border/80"
+                              title="Edit Member"
                             >
-                              <CheckCircle2 className="h-3 w-3" />
-                              <span>Reset Pass</span>
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAccountMember(member);
-                                setAccountEmail(member.email || "");
-                                setAccountPassword("");
-                                setAccountRole("member");
-                              }}
-                              className="text-[11px] text-amber-600 font-semibold hover:underline mt-0.5 flex items-center gap-1"
+                              <Edit2 className="h-3.5 w-3.5" />
+                            </Button>
+
+                            {/* Status Toggle */}
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => handleToggleStatus(member)}
+                              className={`h-8 w-8 transition-colors border-border/80 ${
+                                member.status === "active"
+                                  ? "text-emerald-600 hover:bg-emerald-500/10"
+                                  : "text-amber-600 hover:bg-amber-500/10"
+                              }`}
+                              title={member.status === "active" ? "Deactivate" : "Activate"}
                             >
-                              <KeyRound className="h-3 w-3" />
-                              <span>+ Setup Login</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
+                              <Power className="h-3.5 w-3.5" />
+                            </Button>
 
-                      {/* Financial Breakdown Grid */}
-                      <div className="grid grid-cols-3 gap-2 p-2.5 rounded-lg bg-muted/40 text-xs text-center border border-border/50 font-mono">
-                        <div>
-                          <span className="text-[10px] text-muted-foreground block font-sans">Meals</span>
-                          <span className="font-bold text-foreground">{sum.total_meals}</span>
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-muted-foreground block font-sans">Expense</span>
-                          <span className="font-semibold text-muted-foreground">{formatBDT(sum.total_meal_cost)}</span>
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-muted-foreground block font-sans">Deposited</span>
-                          <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                            {formatBDT(sum.total_deposited)}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex items-center justify-between pt-1 gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleViewDetail(member.id)}
-                          className="h-8 px-2.5 text-xs text-primary border-primary/20 hover:bg-primary/10"
-                        >
-                          <Eye className="h-3.5 w-3.5 mr-1" />
-                          <span>Ledger</span>
-                        </Button>
-
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => {
-                              setSendStatementMember(member);
-                              handleStatementPreset("this_month");
-                            }}
-                            className="h-8 w-8 text-blue-600 border-border/80"
-                            title="Send Statement Email"
-                          >
-                            <Mail className="h-3.5 w-3.5" />
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => {
-                              setEditMember(member);
-                              setEditName(member.name);
-                              setEditEmail(member.email || "");
-                            }}
-                            className="h-8 w-8 text-muted-foreground border-border/80"
-                            title="Edit"
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => handleToggleStatus(member)}
-                            className="h-8 w-8 text-muted-foreground border-border/80"
-                            title="Toggle Status"
-                          >
-                            <Power className="h-3.5 w-3.5" />
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => setMemberToDelete(member)}
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive border-border/80"
-                            title="Delete"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
+                            {/* Delete */}
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => setMemberToDelete(member)}
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors border-border/80"
+                              title="Delete Member"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
       </Card>
 
-      {/* 4. MODALS */}
+      {/* 5. MOBILE VIEW MEMBER CARDS */}
+      <div className="grid grid-cols-1 gap-3 md:hidden">
+        {filteredMembers.map((member) => {
+          const sum = summaries[member.id] || {
+            total_meals: 0,
+            total_meal_cost: 0,
+            total_deposited: 0,
+            balance: 0,
+          };
+          const creds = credentialsMap[member.id];
+          const isAdvance = sum.balance >= 0;
+          const avatarColor = getAvatarColor(member.name);
 
-      {/* Modal: Add Member */}
-      {isAddOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
-          <Card className="w-full max-w-md shadow-xl border-border">
+          return (
+            <Card key={member.id} className="border-border/80 shadow-2xs">
+              <CardContent className="p-4 space-y-3">
+                {/* Header Row */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`h-9 w-9 rounded-full flex items-center justify-center font-bold text-xs border ${avatarColor}`}>
+                      {member.name.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-sm text-foreground">{member.name}</h4>
+                      <span className="text-[11px] text-muted-foreground font-mono">
+                        {member.email || "No email set"}
+                      </span>
+                    </div>
+                  </div>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold border ${
+                      isAdvance
+                        ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                        : "bg-rose-500/10 text-rose-600 border-rose-500/20"
+                    }`}
+                  >
+                    {formatBDT(sum.balance)}
+                  </span>
+                </div>
+
+                {/* Login Credentials Pill */}
+                <div className="flex items-center justify-between p-2 rounded-lg bg-muted/40 border border-border/60 text-xs">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <KeyRound className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <span className="text-muted-foreground">Login:</span>
+                    <span className="font-mono font-semibold text-foreground truncate">
+                      {creds?.displayUsername || (member.user_id ? "Active" : "Not Set")}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenCredentials(member)}
+                    className="text-primary font-semibold hover:underline shrink-0 text-[11px]"
+                  >
+                    {member.user_id || creds ? "View Pass / Reset" : "+ Setup Login"}
+                  </button>
+                </div>
+
+                {/* Financial Summary */}
+                <div className="grid grid-cols-3 gap-2 p-2 rounded-lg bg-muted/30 text-xs text-center font-mono">
+                  <div>
+                    <span className="text-[10px] text-muted-foreground block font-sans">Meals</span>
+                    <span className="font-bold text-foreground">{sum.total_meals}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-muted-foreground block font-sans">Expense</span>
+                    <span className="font-semibold text-muted-foreground">{formatBDT(sum.total_meal_cost)}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-muted-foreground block font-sans">Deposited</span>
+                    <span className="font-semibold text-emerald-600">{formatBDT(sum.total_deposited)}</span>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-between pt-1 gap-2 border-t border-border/50">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleOpenStatementModal(member)}
+                    className="flex-1 text-xs gap-1 text-blue-600"
+                  >
+                    <Mail className="h-3.5 w-3.5" />
+                    <span>Send Mail</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleViewDetail(member.id)}
+                    className="flex-1 text-xs gap-1"
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    <span>History</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setEditMember(member);
+                      setEditName(member.name);
+                      setEditEmail(member.email || "");
+                    }}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Edit2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* =========================================================================
+          MODAL 1: VIEW & MANAGE LOGIN CREDENTIALS (ইউজারনেম ও পাসওয়ার্ড দেখুন)
+         ========================================================================= */}
+      {credsMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <Card className="w-full max-w-md shadow-2xl border-border max-h-[92vh] overflow-y-auto">
             <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border">
-              <CardTitle className="text-base flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-lg bg-amber-500/10 text-amber-600">
+                  <KeyRound className="h-5 w-5" />
+                </div>
+                <div>
+                  <CardTitle className="text-base font-bold">
+                    Web Portal Login Credentials
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    Member: <strong>{credsMember.name}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCredsMember(null)}
+                className="text-muted-foreground hover:text-foreground p-1 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+
+            <CardContent className="pt-4 space-y-4">
+              {/* CURRENT ACTIVE CREDENTIALS DISPLAY BOX */}
+              <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/5 space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-amber-500/20">
+                  <span className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <ShieldCheck className="h-4 w-4 text-emerald-500" />
+                    <span>Member Login Details</span>
+                  </span>
+                  <Badge variant="success" className="text-[10px]">
+                    Active Account
+                  </Badge>
+                </div>
+
+                {/* Username with Copy */}
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground font-semibold">
+                    Login Username (ইউজারনেম):
+                  </Label>
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-background border border-border text-sm font-mono font-bold text-foreground">
+                    <span>{credsUsername}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyText(credsUsername, "username")}
+                      className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+                      title="Copy Username"
+                    >
+                      {copiedItem === "username" ? (
+                        <Check className="h-4 w-4 text-emerald-500" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Password with Eye and Copy */}
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground font-semibold">
+                    Login Password (পাসওয়ার্ড):
+                  </Label>
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-background border border-border text-sm font-mono font-bold text-foreground">
+                    <span>{showPassword ? credsPassword : "••••••••••••"}</span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                        title={showPassword ? "Hide password" : "Show password"}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyText(credsPassword, "password")}
+                        className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+                        title="Copy Password"
+                      >
+                        {copiedItem === "password" ? (
+                          <Check className="h-4 w-4 text-emerald-500" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ONE-CLICK WHATSAPP SHARE CARD */}
+                <div className="pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const shareText = `📋 আসসালামু আলাইকুম ${credsMember.name},\nমেস ম্যানেজমেন্ট সিস্টেমে আপনার লগইন তথ্য:\n👤 ইউজারনেম: ${credsUsername}\n🔑 পাসওয়ার্ড: ${credsPassword}\n🔗 লগইন লিংক: ${window.location.origin}/login`;
+                      handleCopyText(shareText, "whatsapp");
+                    }}
+                    className="w-full text-xs gap-1.5 h-8 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
+                  >
+                    {copiedItem === "whatsapp" ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-600" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5 text-emerald-600" />
+                    )}
+                    <span>Copy Login Message for Member (WhatsApp / SMS)</span>
+                  </Button>
+                </div>
+              </div>
+
+              {/* CHANGE / RESET PASSWORD SECTION */}
+              <form onSubmit={handleSaveCredentials} className="space-y-3 pt-2 border-t border-border/80">
+                <h4 className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  <span>Update Username or Set New Password</span>
+                </h4>
+
+                <div className="space-y-1">
+                  <Label htmlFor="edit-username" className="text-[11px] text-muted-foreground">
+                    Username or Email
+                  </Label>
+                  <Input
+                    id="edit-username"
+                    value={credsUsername}
+                    onChange={(e) => setCredsUsername(e.target.value)}
+                    required
+                    className="h-8 text-xs font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="edit-password" className="text-[11px] text-muted-foreground">
+                      New Password (পাসওয়ার্ড)
+                    </Label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const random = "Pass" + Math.floor(100000 + Math.random() * 900000) + "!";
+                        setCredsPassword(random);
+                        setShowPassword(true);
+                      }}
+                      className="text-[10px] text-primary hover:underline cursor-pointer"
+                    >
+                      🎲 Generate Random
+                    </button>
+                  </div>
+                  <Input
+                    id="edit-password"
+                    type={showPassword ? "text" : "password"}
+                    value={credsPassword}
+                    onChange={(e) => setCredsPassword(e.target.value)}
+                    required
+                    className="h-8 text-xs font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="edit-role" className="text-[11px] text-muted-foreground">
+                    Assigned Portal Role
+                  </Label>
+                  <select
+                    id="edit-role"
+                    value={credsRole}
+                    onChange={(e) => setCredsRole(e.target.value as UserRole)}
+                    className="w-full h-8 px-2.5 rounded-md border border-input bg-background text-xs"
+                  >
+                    <option value="member">MEMBER (Personal read-only dashboard)</option>
+                    <option value="admin">ADMIN (Full administrative access)</option>
+                    <option value="group_ledger_viewer">GROUP_LEDGER_VIEWER (Confidential Aggregate only)</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCredsMember(null)}
+                    className="h-8 text-xs"
+                  >
+                    Close
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    isLoading={isSavingCreds}
+                    className="h-8 text-xs gap-1.5"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    <span>Save Credentials</span>
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 2: SEND STATEMENT EMAIL (সম্পূর্ণ হিসাব বা যেকোনো মাসের হিসাব)
+         ========================================================================= */}
+      {stmtMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <Card className="w-full max-w-lg shadow-2xl border-border max-h-[92vh] overflow-y-auto">
+            <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-lg bg-blue-500/10 text-blue-600">
+                  <Mail className="h-5 w-5" />
+                </div>
+                <div>
+                  <CardTitle className="text-base font-bold">
+                    Send Meal & Balance Statement
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    Recipient: <strong>{stmtMember.name}</strong> ({stmtMember.email || "No email set"})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStmtMember(null)}
+                className="text-muted-foreground hover:text-foreground p-1 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+
+            <CardContent className="pt-4 space-y-4">
+              {!stmtMember.email && (
+                <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-xs text-destructive flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>
+                    This member has no email address configured. Please edit the member and set their email first.
+                  </span>
+                </div>
+              )}
+
+              <form onSubmit={handleSendStatement} className="space-y-4">
+                {/* STATEMENT TYPE SELECTOR */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">
+                    Select Statement Scope (হিসাবের পরিধি নির্বাচন করুন):
+                  </Label>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {/* Option 1: Full / All-Time */}
+                    <button
+                      type="button"
+                      onClick={() => setStmtType("all")}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        stmtType === "all"
+                          ? "border-primary bg-primary/10 shadow-xs"
+                          : "border-border hover:bg-muted/50"
+                      }`}
+                    >
+                      <div className="font-bold flex items-center gap-1.5 text-foreground">
+                        <Sparkles className="h-3.5 w-3.5 text-primary" />
+                        <span>সার্বিক সম্পূর্ণ হিসাব</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        আজীবনের সব মিল, জমা ও বর্তমান ব্যালেন্স
+                      </p>
+                    </button>
+
+                    {/* Option 2: Specific Month */}
+                    <button
+                      type="button"
+                      onClick={() => setStmtType("month")}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        stmtType === "month"
+                          ? "border-primary bg-primary/10 shadow-xs"
+                          : "border-border hover:bg-muted/50"
+                      }`}
+                    >
+                      <div className="font-bold flex items-center gap-1.5 text-foreground">
+                        <Calendar className="h-3.5 w-3.5 text-primary" />
+                        <span>যেকোনো মাসের হিসাব</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        নির্দিষ্ট মাসের সম্পূর্ণ মিল ও খতিয়ান
+                      </p>
+                    </button>
+
+                    {/* Option 3: Weekly */}
+                    <button
+                      type="button"
+                      onClick={() => setStmtType("week")}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        stmtType === "week"
+                          ? "border-primary bg-primary/10 shadow-xs"
+                          : "border-border hover:bg-muted/50"
+                      }`}
+                    >
+                      <div className="font-bold text-foreground">সাপ্তাহিক হিসাব</div>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        চলতি সপ্তাহের ৭ দিনের খতিয়ান
+                      </p>
+                    </button>
+
+                    {/* Option 4: Custom Dates */}
+                    <button
+                      type="button"
+                      onClick={() => setStmtType("custom")}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        stmtType === "custom"
+                          ? "border-primary bg-primary/10 shadow-xs"
+                          : "border-border hover:bg-muted/50"
+                      }`}
+                    >
+                      <div className="font-bold text-foreground">কাস্টম তারিখ</div>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        পছন্দমতো যেকোনো তারিখ থেকে তারিখ
+                      </p>
+                    </button>
+                  </div>
+                </div>
+
+                {/* MONTH DROPDOWN (Shown when stmtType === "month") */}
+                {stmtType === "month" && (
+                  <div className="p-3 rounded-xl bg-muted/40 border border-border space-y-2 animate-in fade-in">
+                    <Label htmlFor="month-select" className="text-xs font-semibold">
+                      Select Month (মাস নির্বাচন করুন):
+                    </Label>
+                    <select
+                      id="month-select"
+                      value={selectedMonth}
+                      onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-xs font-semibold"
+                    >
+                      {monthsList.map((m) => (
+                        <option key={m.value} value={m.value}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* CUSTOM DATE INPUTS (Shown when stmtType === "custom") */}
+                {stmtType === "custom" && (
+                  <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-muted/40 border border-border animate-in fade-in">
+                    <div className="space-y-1">
+                      <Label htmlFor="c-start" className="text-[11px] text-muted-foreground">From Date</Label>
+                      <Input
+                        id="c-start"
+                        type="date"
+                        value={customStartDate}
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        className="h-8 text-xs"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="c-end" className="text-[11px] text-muted-foreground">To Date</Label>
+                      <Input
+                        id="c-end"
+                        type="date"
+                        value={customEndDate}
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        className="h-8 text-xs"
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* ALL-TIME NOTICE */}
+                {stmtType === "all" && (
+                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-300">
+                    ✨ <strong>সার্বিক সম্পূর্ণ হিসাব:</strong> এই সদস্য মেসে যোগদানের প্রথম দিন থেকে আজ পর্যন্ত যত মিল খেয়েছেন, যত টাকা জমা দিয়েছেন, এবং বর্তমান সর্বমোট ব্যালেন্সের পূর্ণাঙ্গ খতিয়ান ইমেইলে চলে যাবে।
+                  </div>
+                )}
+
+                {/* DISPATCH ACTION BUTTONS */}
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setStmtMember(null)}
+                    className="h-9 text-xs"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    disabled={!stmtMember.email || isSendingStatement}
+                    isLoading={isSendingStatement}
+                    className="h-9 text-xs gap-1.5"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    <span>Send Statement via Gmail</span>
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 3: ADD MEMBER
+         ========================================================================= */}
+      {isAddOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <Card className="w-full max-w-md shadow-2xl border-border">
+            <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border">
+              <CardTitle className="text-base font-bold flex items-center gap-2">
                 <UserPlus className="h-4 w-4 text-primary" />
                 <span>Add New Member</span>
               </CardTitle>
               <button
                 type="button"
                 onClick={() => setIsAddOpen(false)}
-                className="text-muted-foreground hover:text-foreground p-1"
+                className="text-muted-foreground hover:text-foreground p-1 cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1184,10 +1462,10 @@ export default function MembersPage() {
             <CardContent className="pt-4">
               <form onSubmit={handleAddMember} className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="new-name">Member Name (সদস্যের নাম)</Label>
+                  <Label htmlFor="m-name" className="text-xs font-semibold">Member Name (সদস্যের নাম)</Label>
                   <Input
-                    id="new-name"
-                    placeholder="e.g. Rahim, Karim, Tuhin"
+                    id="m-name"
+                    placeholder="e.g. Tanvir Hasan"
                     value={newMemberName}
                     onChange={(e) => {
                       setNewMemberName(e.target.value);
@@ -1197,58 +1475,58 @@ export default function MembersPage() {
                     }}
                     required
                     autoFocus
+                    className="h-9 text-xs"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="new-email">Report Email (হিসাবের ইমেইল - ঐচ্ছিক)</Label>
+                  <Label htmlFor="m-email" className="text-xs font-semibold">Report Email Address (Optional)</Label>
                   <Input
-                    id="new-email"
+                    id="m-email"
                     type="email"
-                    placeholder="e.g. member@gmail.com"
+                    placeholder="member@gmail.com"
                     value={newMemberEmail}
                     onChange={(e) => setNewMemberEmail(e.target.value)}
+                    className="h-9 text-xs"
                   />
-                  <p className="text-[11px] text-muted-foreground">
-                    This email receives weekly automated reports and on-demand mess statements.
-                  </p>
                 </div>
 
-                {/* Optional instant login provisioning */}
-                <div className="p-3 rounded-lg border border-border bg-muted/30 space-y-2.5">
-                  <label className="flex items-center gap-2 text-xs font-semibold text-foreground cursor-pointer">
+                {/* Instant Login Credentials Checkbox */}
+                <div className="p-3 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-foreground">
                     <input
                       type="checkbox"
                       checked={createAccountWithMember}
                       onChange={(e) => setCreateAccountWithMember(e.target.checked)}
-                      className="rounded border-border text-primary focus:ring-primary"
+                      className="rounded border-input text-primary focus:ring-primary"
                     />
-                    <span>Create Website Login Account (ঐচ্ছিক লগইন অ্যাক্সেস)</span>
+                    <span>Create web portal login account immediately</span>
                   </label>
 
                   {createAccountWithMember && (
-                    <div className="space-y-2.5 pt-1 border-t border-border/60">
+                    <div className="space-y-2.5 pt-1 animate-in fade-in">
                       <div className="space-y-1">
-                        <Label htmlFor="new-username" className="text-xs">Login Username or Email</Label>
+                        <Label htmlFor="m-user" className="text-[11px] text-muted-foreground">
+                          Login Username:
+                        </Label>
                         <Input
-                          id="new-username"
-                          type="text"
-                          placeholder="e.g. tuhin or tuhin@gmail.com"
+                          id="m-user"
                           value={newMemberUsername}
                           onChange={(e) => setNewMemberUsername(e.target.value)}
-                          required={createAccountWithMember}
+                          placeholder="e.g. tanvir"
+                          className="h-8 text-xs font-mono"
                         />
                       </div>
-
                       <div className="space-y-1">
-                        <Label htmlFor="new-password" className="text-xs">Initial Password (পাসওয়ার্ড)</Label>
+                        <Label htmlFor="m-pass" className="text-[11px] text-muted-foreground">
+                          Password:
+                        </Label>
                         <Input
-                          id="new-password"
-                          type="password"
-                          placeholder="At least 6 characters"
+                          id="m-pass"
                           value={newMemberPassword}
                           onChange={(e) => setNewMemberPassword(e.target.value)}
-                          required={createAccountWithMember}
+                          placeholder="Minimum 6 characters"
+                          className="h-8 text-xs font-mono"
                         />
                       </div>
                     </div>
@@ -1261,11 +1539,17 @@ export default function MembersPage() {
                     variant="outline"
                     size="sm"
                     onClick={() => setIsAddOpen(false)}
-                    disabled={isAdding}
+                    className="h-9 text-xs"
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" variant="primary" size="sm" isLoading={isAdding}>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    isLoading={isAdding}
+                    className="h-9 text-xs"
+                  >
                     Add Member
                   </Button>
                 </div>
@@ -1275,19 +1559,18 @@ export default function MembersPage() {
         </div>
       )}
 
-      {/* Modal: Edit Member */}
+      {/* =========================================================================
+          MODAL 4: EDIT MEMBER
+         ========================================================================= */}
       {editMember && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
-          <Card className="w-full max-w-md shadow-xl border-border">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <Card className="w-full max-w-md shadow-2xl border-border">
             <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Edit2 className="h-4 w-4 text-primary" />
-                <span>Edit Member Details</span>
-              </CardTitle>
+              <CardTitle className="text-base font-bold">Edit Member</CardTitle>
               <button
                 type="button"
                 onClick={() => setEditMember(null)}
-                className="text-muted-foreground hover:text-foreground p-1"
+                className="text-muted-foreground hover:text-foreground p-1 cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1295,28 +1578,25 @@ export default function MembersPage() {
             <CardContent className="pt-4">
               <form onSubmit={handleEditMember} className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="edit-name">Member Name</Label>
+                  <Label htmlFor="e-name" className="text-xs font-semibold">Member Name</Label>
                   <Input
-                    id="edit-name"
+                    id="e-name"
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
                     required
-                    autoFocus
+                    className="h-9 text-xs"
                   />
                 </div>
-
                 <div className="space-y-1.5">
-                  <Label htmlFor="edit-email">Report Recipient Email (হিসাবের ইমেইল)</Label>
+                  <Label htmlFor="e-email" className="text-xs font-semibold">Report Email Address</Label>
                   <Input
-                    id="edit-email"
+                    id="e-email"
                     type="email"
-                    placeholder="member@gmail.com"
                     value={editEmail}
                     onChange={(e) => setEditEmail(e.target.value)}
+                    placeholder="email@example.com"
+                    className="h-9 text-xs"
                   />
-                  <p className="text-[11px] text-muted-foreground">
-                    Destination address for weekly and on-demand mess calculation reports.
-                  </p>
                 </div>
 
                 <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
@@ -1325,11 +1605,17 @@ export default function MembersPage() {
                     variant="outline"
                     size="sm"
                     onClick={() => setEditMember(null)}
-                    disabled={isEditing}
+                    className="h-9 text-xs"
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" variant="primary" size="sm" isLoading={isEditing}>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    isLoading={isEditing}
+                    className="h-9 text-xs"
+                  >
                     Save Changes
                   </Button>
                 </div>
@@ -1339,200 +1625,30 @@ export default function MembersPage() {
         </div>
       )}
 
-      {/* Modal: Dedicated Report Email Setup (আলাদা হিসাবের ইমেইল) */}
-      {reportEmailMember && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
-          <Card className="w-full max-w-md shadow-xl border-border">
-            <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-600">
-                  <Mail className="h-4 w-4" />
-                </div>
-                <div>
-                  <CardTitle className="text-base">Member Report Email</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Target Member: <strong>{reportEmailMember.name}</strong>
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setReportEmailMember(null)}
-                className="text-muted-foreground hover:text-foreground p-1"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </CardHeader>
-            <CardContent className="pt-4">
-              <form onSubmit={handleSaveReportEmail} className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="member-report-email">Email Address (হিসাবের ইমেইল)</Label>
-                  <Input
-                    id="member-report-email"
-                    type="email"
-                    placeholder="e.g. member@gmail.com"
-                    value={reportEmailValue}
-                    onChange={(e) => setReportEmailValue(e.target.value)}
-                    autoFocus
-                  />
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    This address receives scheduled weekly reports and on-demand mess statements. It operates completely independently of website login credentials.
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setReportEmailMember(null)}
-                    disabled={isSavingReportEmail}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit" variant="primary" size="sm" isLoading={isSavingReportEmail}>
-                    Save Report Email
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Modal: Provision / Reset Login Credentials */}
-      {accountMember && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
-          <Card className="w-full max-w-md shadow-xl border-border max-h-[90vh] overflow-y-auto">
-            <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border">
-              <div>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <KeyRound className="h-4 w-4 text-primary" />
-                  <span>Web Portal Login Credentials</span>
-                </CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Target Member: <strong>{accountMember.name}</strong>
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAccountMember(null)}
-                className="text-muted-foreground hover:text-foreground p-1"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </CardHeader>
-            <CardContent className="pt-4">
-              <form onSubmit={handleProvisionAccount} className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="account-email">Login Username or Email (ইউজারনেম বা ইমেইল)</Label>
-                  <Input
-                    id="account-email"
-                    type="text"
-                    placeholder={`e.g. ${accountMember.name.toLowerCase().replace(/\s+/g, '')} or email@domain.com`}
-                    value={accountEmail}
-                    onChange={(e) => setAccountEmail(e.target.value)}
-                    required
-                    autoFocus
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    You can set a simple username or any email address.
-                  </p>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="account-password">Password (পাসওয়ার্ড)</Label>
-                  <div className="relative">
-                    <Input
-                      id="account-password"
-                      type={showPassword ? "text" : "password"}
-                      placeholder="At least 6 characters"
-                      value={accountPassword}
-                      onChange={(e) => setAccountPassword(e.target.value)}
-                      required
-                      className="pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
-                      tabIndex={-1}
-                    >
-                      {showPassword ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    If this user already exists, submitting will update their password.
-                  </p>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="account-role">Assigned System Role</Label>
-                  <select
-                    id="account-role"
-                    value={accountRole}
-                    onChange={(e) => setAccountRole(e.target.value as UserRole)}
-                    className="w-full h-9 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  >
-                    <option value="member">MEMBER (Personal read-only dashboard & statements)</option>
-                    <option value="admin">ADMIN (Full administrative access & settings)</option>
-                    <option value="group_ledger_viewer">GROUP_LEDGER_VIEWER (Confidential aggregate view only)</option>
-                  </select>
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setAccountMember(null)}
-                    disabled={isProvisioning}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit" variant="primary" size="sm" isLoading={isProvisioning}>
-                    Save Login Credentials
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Modal: Confirm Permanent Deletion */}
+      {/* =========================================================================
+          MODAL 5: DELETE MEMBER
+         ========================================================================= */}
       {memberToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
-          <Card className="w-full max-w-md shadow-xl border-destructive/40">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <Card className="w-full max-w-md shadow-2xl border-destructive/40">
             <CardHeader className="pb-3 border-b border-border">
-              <CardTitle className="text-base text-destructive flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5" />
-                <span>Confirm Permanent Deletion</span>
+              <CardTitle className="text-base font-bold text-destructive flex items-center gap-2">
+                <Trash2 className="h-4 w-4" />
+                <span>Delete Member Permanently</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-4 space-y-4">
               <p className="text-sm text-foreground">
-                Are you sure you want to permanently delete member{" "}
-                <strong>&quot;{memberToDelete.name}&quot;</strong>?
+                Are you sure you want to permanently delete <strong>{memberToDelete.name}</strong>?
+                All meals, attendance records, and deposits associated with this member will be permanently removed.
               </p>
-              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-xs text-destructive space-y-1">
-                <strong>Warning:</strong>
-                <p>
-                  This action permanently removes the member profile. Meal entries and deposits linked to this member will also be affected. Consider <strong>Deactivating</strong> instead if you wish to preserve historical records.
-                </p>
-              </div>
-
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => setMemberToDelete(null)}
-                  disabled={isDeleting}
+                  className="h-9 text-xs"
                 >
                   Cancel
                 </Button>
@@ -1542,8 +1658,9 @@ export default function MembersPage() {
                   size="sm"
                   onClick={handleDeleteMember}
                   isLoading={isDeleting}
+                  className="h-9 text-xs"
                 >
-                  Delete Permanently
+                  Confirm Delete
                 </Button>
               </div>
             </CardContent>
@@ -1551,170 +1668,15 @@ export default function MembersPage() {
         </div>
       )}
 
-      {/* Modal: Detailed Member Ledger & History */}
+      {/* =========================================================================
+          MODAL 6: MEMBER LEDGER & MEAL HISTORY DETAILS
+         ========================================================================= */}
       <MemberDetailsModal
         isOpen={Boolean(detailMemberId)}
         onClose={() => setDetailMemberId(null)}
         data={detailData}
         isLoading={isLoadingDetail}
       />
-
-      {/* Modal: Send On-Demand Statement Email */}
-      {sendStatementMember && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-card w-full max-w-md rounded-2xl border border-border shadow-2xl p-5 sm:p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-blue-500/10 text-blue-600">
-                  <Mail className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-foreground">
-                    Send Statement Email
-                  </h3>
-                  <p className="text-xs text-muted-foreground">
-                    Dispatch personal mess calculation to {sendStatementMember.name}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSendStatementMember(null)}
-                className="text-muted-foreground hover:text-foreground p-1 cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSendStatement} className="space-y-4">
-              <div className="p-3 rounded-lg bg-muted/40 border border-border text-xs space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Recipient Member:</span>
-                  <span className="font-semibold text-foreground">{sendStatementMember.name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Email Address:</span>
-                  <span className="font-mono text-primary">
-                    {sendStatementMember.email || "No email set"}
-                  </span>
-                </div>
-              </div>
-
-              {!sendStatementMember.email && (
-                <div className="p-2.5 rounded-lg bg-destructive/10 border border-destructive/20 text-xs text-destructive">
-                  ⚠️ This member does not have an email address configured. Please edit the member to set an email first.
-                </div>
-              )}
-
-              {/* Period Presets */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-muted-foreground">
-                  Select Statement Period (হিসাবের সময়কাল)
-                </Label>
-                <div className="flex flex-wrap gap-1.5 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => handleStatementPreset("this_week")}
-                    className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                      statementPreset === "this_week"
-                        ? "bg-primary text-primary-foreground shadow-2xs"
-                        : "bg-muted text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    This Week
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleStatementPreset("this_month")}
-                    className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                      statementPreset === "this_month"
-                        ? "bg-primary text-primary-foreground shadow-2xs"
-                        : "bg-muted text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    This Month
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleStatementPreset("last_month")}
-                    className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                      statementPreset === "last_month"
-                        ? "bg-primary text-primary-foreground shadow-2xs"
-                        : "bg-muted text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Last Month
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleStatementPreset("all")}
-                    className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                      statementPreset === "all"
-                        ? "bg-primary text-primary-foreground shadow-2xs"
-                        : "bg-muted text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    All Time
-                  </button>
-                </div>
-              </div>
-
-              {/* Date Inputs */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label htmlFor="stmt-start" className="text-[11px] text-muted-foreground">From Date</Label>
-                  <Input
-                    id="stmt-start"
-                    type="date"
-                    value={statementStartDate}
-                    onChange={(e) => {
-                      setStatementPreset("custom");
-                      setStatementStartDate(e.target.value);
-                    }}
-                    className="h-8 text-xs"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="stmt-end" className="text-[11px] text-muted-foreground">To Date</Label>
-                  <Input
-                    id="stmt-end"
-                    type="date"
-                    value={statementEndDate}
-                    onChange={(e) => {
-                      setStatementPreset("custom");
-                      setStatementEndDate(e.target.value);
-                    }}
-                    className="h-8 text-xs"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSendStatementMember(null)}
-                  className="h-9 text-xs"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="sm"
-                  disabled={!sendStatementMember.email}
-                  isLoading={isSendingStatement}
-                  className="h-9 text-xs gap-1.5"
-                >
-                  <Mail className="h-4 w-4" />
-                  <span>Dispatch Email Now</span>
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -49,7 +49,14 @@ export default function EmailReportsPage() {
 
   // On-demand single member statement dispatch state
   const [selectedMemberId, setSelectedMemberId] = React.useState<string>("");
-  const [singlePreset, setSinglePreset] = React.useState<DatePreset | "custom">("this_month");
+  const [singlePreset, setSinglePreset] = React.useState<DatePreset | "custom" | "month">("month");
+  const [singleMonth, setSingleMonth] = React.useState<number>(() => {
+    const today = new Date();
+    return today.getMonth() + 1;
+  });
+  const [singleYear, setSingleYear] = React.useState<number>(() => {
+    return new Date().getFullYear();
+  });
   const [singleStartDate, setSingleStartDate] = React.useState("");
   const [singleEndDate, setSingleEndDate] = React.useState("");
   const [isSendingSingle, setIsSendingSingle] = React.useState(false);
@@ -61,11 +68,15 @@ export default function EmailReportsPage() {
     setSingleEndDate(r.endDate);
   }, []);
 
-  const handleSinglePreset = (preset: DatePreset) => {
+  const handleSinglePreset = (preset: DatePreset | "month") => {
     setSinglePreset(preset);
     if (preset === "all") {
       setSingleStartDate("");
       setSingleEndDate("");
+    } else if (preset === "month") {
+      const lastDay = new Date(singleYear, singleMonth, 0).getDate();
+      setSingleStartDate(`${singleYear}-${String(singleMonth).padStart(2, "0")}-01`);
+      setSingleEndDate(`${singleYear}-${String(singleMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`);
     } else {
       const r = getPresetDateRange(preset);
       setSingleStartDate(r.startDate);
@@ -87,15 +98,24 @@ export default function EmailReportsPage() {
 
     try {
       setIsSendingSingle(true);
+      const payload: any = {
+        action: "single_member_statement",
+        memberId: selectedMemberId,
+        periodType: singlePreset,
+      };
+
+      if (singlePreset === "month") {
+        payload.month = singleMonth;
+        payload.year = singleYear;
+      } else if (singlePreset === "custom") {
+        payload.startDate = singleStartDate;
+        payload.endDate = singleEndDate;
+      }
+
       const res = await fetch("/api/admin/dispatch-reports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "single_member_statement",
-          memberId: selectedMemberId,
-          startDate: singleStartDate || undefined,
-          endDate: singleEndDate || undefined,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -491,18 +511,29 @@ export default function EmailReportsPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold">Period Preset</Label>
+                <Label className="text-xs font-semibold">Period Preset (হিসাবের সময়কাল)</Label>
                 <div className="flex flex-wrap gap-1.5 text-xs">
                   <button
                     type="button"
-                    onClick={() => handleSinglePreset("this_week")}
+                    onClick={() => handleSinglePreset("all")}
                     className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                      singlePreset === "this_week"
+                      singlePreset === "all"
                         ? "bg-primary text-primary-foreground shadow-2xs"
                         : "bg-muted text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    This Week
+                    সার্বিক হিসাব (All Time)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSinglePreset("month")}
+                    className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                      singlePreset === "month"
+                        ? "bg-primary text-primary-foreground shadow-2xs"
+                        : "bg-muted text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    যেকোনো মাস (Select Month)
                   </button>
                   <button
                     type="button"
@@ -513,31 +544,49 @@ export default function EmailReportsPage() {
                         : "bg-muted text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    This Month
+                    চলতি মাস (This Month)
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleSinglePreset("last_month")}
+                    onClick={() => handleSinglePreset("this_week")}
                     className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                      singlePreset === "last_month"
+                      singlePreset === "this_week"
                         ? "bg-primary text-primary-foreground shadow-2xs"
                         : "bg-muted text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    Last Month
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSinglePreset("all")}
-                    className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                      singlePreset === "all"
-                        ? "bg-primary text-primary-foreground shadow-2xs"
-                        : "bg-muted text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    All Time
+                    সাপ্তাহিক (This Week)
                   </button>
                 </div>
+
+                {/* Specific Month Selector */}
+                {singlePreset === "month" && (
+                  <div className="pt-2 animate-in fade-in">
+                    <select
+                      value={singleMonth}
+                      onChange={(e) => {
+                        const m = parseInt(e.target.value, 10);
+                        setSingleMonth(m);
+                        const lastDay = new Date(singleYear, m, 0).getDate();
+                        setSingleStartDate(`${singleYear}-${String(m).padStart(2, "0")}-01`);
+                        setSingleEndDate(`${singleYear}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`);
+                      }}
+                      className="w-full h-8 rounded-md border border-input bg-background px-2.5 py-1 text-xs font-semibold"
+                    >
+                      <option value={11}>নভেম্বর ২০২৬ (November 2026)</option>
+                      <option value={10}>অক্টোবর ২০২৬ (October 2026)</option>
+                      <option value={9}>সেপ্টেম্বর ২০২৬ (September 2026)</option>
+                      <option value={8}>আগস্ট ২০২৬ (August 2026)</option>
+                      <option value={7}>জুলাই ২০২৬ (July 2026)</option>
+                      <option value={6}>জুন ২০২৬ (June 2026)</option>
+                      <option value={5}>মে ২০২৬ (May 2026)</option>
+                      <option value={4}>এপ্রিল ২০২৬ (April 2026)</option>
+                      <option value={3}>মার্চ ২০২৬ (March 2026)</option>
+                      <option value={2}>ফেব্রুয়ারি ২০২৬ (February 2026)</option>
+                      <option value={1}>জানুয়ারি ২০২৬ (January 2026)</option>
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -553,6 +602,8 @@ export default function EmailReportsPage() {
                       setSinglePreset("custom");
                       setSingleStartDate(e.target.value);
                     }}
+                    disabled={singlePreset === "all"}
+                    placeholder={singlePreset === "all" ? "Beginning of time" : ""}
                     className="h-8 text-xs"
                   />
                 </div>
