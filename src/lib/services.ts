@@ -1521,11 +1521,13 @@ export async function getGroupAggregateLedger(
     const rawData = rpcData as GroupAggregateReport;
     const rawRows = rawData.daily_rows || [];
 
+    let openingCost = 0;
+    let openingDeposit = 0;
     let openingBalance = 0;
     if (startDate && rawData.lifetime && rawData.period) {
-      openingBalance =
-        (rawData.lifetime.total_deposits - rawData.period.total_deposit) -
-        (rawData.lifetime.total_expenses - rawData.period.total_cost);
+      openingDeposit = Math.max(0, rawData.lifetime.total_deposits - rawData.period.total_deposit);
+      openingCost = Math.max(0, rawData.lifetime.total_expenses - rawData.period.total_cost);
+      openingBalance = openingDeposit - openingCost;
     }
 
     // Chronological progression for running balance (oldest to newest)
@@ -1552,10 +1554,21 @@ export async function getGroupAggregateLedger(
 
     const finalResult: GroupAggregateReport = {
       ...rawData,
+      opening: {
+        total_cost: openingCost,
+        total_deposit: openingDeposit,
+        balance: openingBalance,
+      },
       period: {
         ...rawData.period,
+        net_flow: (rawData.period?.total_deposit ?? 0) - (rawData.period?.total_cost ?? 0),
         opening_balance: openingBalance,
         closing_balance: currBal,
+      },
+      closing: {
+        total_cost: openingCost + (rawData.period?.total_cost ?? 0),
+        total_deposit: openingDeposit + (rawData.period?.total_deposit ?? 0),
+        balance: currBal,
       },
       daily_rows: enrichedRows,
       daily_payments,
@@ -1585,11 +1598,13 @@ export async function getGroupAggregateLedger(
   const activeCount = (membersRes.data || []).filter((m) => m.status === "active").length;
 
   // Opening balance before startDate
+  let openingDeposit = 0;
+  let openingCost = 0;
   let openingBalance = 0;
   if (startDate) {
-    const prevDeposits = deposits.filter((d) => d.deposit_date < startDate).reduce((acc, d) => acc + d.amount, 0);
-    const prevExpenses = meals.filter((m) => m.meal_date < startDate).reduce((acc, m) => acc + (m.quantity > 0 ? m.quantity * m.unit_price : 0), 0);
-    openingBalance = prevDeposits - prevExpenses;
+    openingDeposit = deposits.filter((d) => d.deposit_date < startDate).reduce((acc, d) => acc + d.amount, 0);
+    openingCost = meals.filter((m) => m.meal_date < startDate).reduce((acc, m) => acc + (m.quantity > 0 ? m.quantity * m.unit_price : 0), 0);
+    openingBalance = openingDeposit - openingCost;
   }
 
   const datesMap = new Map<
@@ -1668,6 +1683,11 @@ export async function getGroupAggregateLedger(
   const totalLifetimeExpenses = meals.reduce((acc, m) => acc + (m.quantity > 0 ? m.quantity * m.unit_price : 0), 0);
 
   const report: GroupAggregateReport = {
+    opening: {
+      total_cost: openingCost,
+      total_deposit: openingDeposit,
+      balance: openingBalance,
+    },
     period: {
       startDate,
       endDate,
@@ -1676,8 +1696,14 @@ export async function getGroupAggregateLedger(
       total_dinner: totalPeriodDinner,
       total_cost: totalPeriodCost,
       total_deposit: totalPeriodDeposit,
+      net_flow: totalPeriodDeposit - totalPeriodCost,
       opening_balance: openingBalance,
       closing_balance: currentRunning,
+    },
+    closing: {
+      total_cost: openingCost + totalPeriodCost,
+      total_deposit: openingDeposit + totalPeriodDeposit,
+      balance: currentRunning,
     },
     lifetime: {
       total_deposits: totalLifetimeDeposits,

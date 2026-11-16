@@ -263,6 +263,11 @@ export interface GroupAggregateDailyRow {
 }
 
 export interface GroupAggregateReport {
+  opening: {
+    total_cost: number;
+    total_deposit: number;
+    balance: number;
+  };
   period: {
     startDate?: string | null;
     endDate?: string | null;
@@ -271,8 +276,14 @@ export interface GroupAggregateReport {
     total_dinner: number;
     total_cost: number;
     total_deposit: number;
+    net_flow: number;
     opening_balance?: number;
     closing_balance?: number;
+  };
+  closing: {
+    total_cost: number;
+    total_deposit: number;
+    balance: number;
   };
   lifetime: {
     total_deposits: number;

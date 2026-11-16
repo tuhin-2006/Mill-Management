@@ -78,9 +78,12 @@ export function GroupLedgerViewerDashboard({ initialReport }: ViewerDashboardPro
     void fetchAggregate(startDate, e.target.value);
   };
 
+  const opening = report.opening;
   const period = report.period;
+  const closing = report.closing;
   const lifetime = report.lifetime;
-  const isSurplus = lifetime.balance >= 0;
+  const isPreviousDue = (opening?.balance ?? 0) < 0;
+  const isClosingPositive = (closing?.balance ?? lifetime.balance) >= 0;
 
   // Export aggregate records to CSV
   const handleExportCSV = () => {
@@ -265,84 +268,122 @@ export function GroupLedgerViewerDashboard({ initialReport }: ViewerDashboardPro
         </CardContent>
       </Card>
 
-      {/* Primary KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Group Net Balance */}
-        <Card className={`border-2 ${isSurplus ? "border-emerald-500/30 bg-emerald-500/5" : "border-rose-500/30 bg-rose-500/5"}`}>
-          <CardContent className="p-5">
+      {/* 4 Financial Period Statement Cards (Identical to Admin Panel) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
+        {/* 1. Previous Balance (Opening) */}
+        <Card
+          className={`border shadow-xs transition-all ${
+            !startDate
+              ? "border-border"
+              : isPreviousDue
+              ? "border-destructive/40 bg-gradient-to-br from-card via-card to-destructive/5"
+              : "border-emerald-500/40 bg-gradient-to-br from-card via-card to-emerald-500/5"
+          }`}
+        >
+          <CardContent className="p-4 space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Group Treasury Balance
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Previous Balance (পূর্ববর্তী ব্যালেন্স)
               </span>
-              <Badge variant={isSurplus ? "success" : "destructive"} className="text-[10px]">
-                {isSurplus ? "Surplus / উদ্বৃত্ত" : "Deficit / ঘাটতি"}
+              <Badge
+                variant={!startDate ? "secondary" : isPreviousDue ? "destructive" : "success"}
+                className="text-[10px] px-1.5 py-0"
+              >
+                {!startDate ? "Inception" : isPreviousDue ? "Previous Due" : "Advance B/F"}
               </Badge>
             </div>
-            <div className={`text-2xl sm:text-3xl font-extrabold mt-2 ${isSurplus ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-              {formatBDT(lifetime.balance)}
+            <div
+              className={`text-xl sm:text-2xl font-extrabold truncate ${
+                !startDate
+                  ? "text-foreground"
+                  : isPreviousDue
+                  ? "text-destructive"
+                  : "text-emerald-600 dark:text-emerald-400"
+              }`}
+            >
+              {!startDate ? "৳0" : formatBDT(opening?.balance ?? 0)}
             </div>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              Total Funds ({formatBDT(lifetime.total_deposits)}) - Total Expenses ({formatBDT(lifetime.total_expenses)})
+            <p className="text-[11px] text-muted-foreground truncate">
+              {!startDate
+                ? "Starting from inception"
+                : `Cost: ${formatBDT(opening?.total_cost ?? 0)} • Dep: ${formatBDT(
+                    opening?.total_deposit ?? 0
+                  )}`}
             </p>
           </CardContent>
         </Card>
 
-        {/* Total Group Meals */}
-        <Card>
-          <CardContent className="p-5">
+        {/* 2. Period Meal Expense */}
+        <Card className="border-border shadow-xs">
+          <CardContent className="p-4 space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Total Group Meals
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Period Meal Expense (মিল খরচ)
               </span>
-              <div className="p-2 rounded-lg bg-primary/10 text-primary">
-                <UtensilsCrossed className="h-4 w-4" />
+              <div className="p-1.5 bg-primary/10 text-primary rounded-lg shrink-0">
+                <UtensilsCrossed className="h-3.5 w-3.5" />
               </div>
             </div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-foreground mt-2">
-              {period.total_meals}
-            </div>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              {period.total_lunch} Lunch &bull; {period.total_dinner} Dinner
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Total Meal Expense */}
-        <Card>
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Group Meal Expenses
-              </span>
-              <div className="p-2 rounded-lg bg-primary/10 text-primary">
-                <Receipt className="h-4 w-4" />
-              </div>
-            </div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-foreground mt-2">
+            <div className="text-xl sm:text-2xl font-extrabold text-foreground truncate">
               {formatBDT(period.total_cost)}
             </div>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              Applied at daily unit rates (incl. Friday rate)
+            <p className="text-[11px] text-muted-foreground truncate">
+              {period.total_meals} meals (Lunch: {period.total_lunch}, Dinner: {period.total_dinner})
             </p>
           </CardContent>
         </Card>
 
-        {/* Total Group Deposits */}
-        <Card>
-          <CardContent className="p-5">
+        {/* 3. Period Deposits */}
+        <Card className="border-border shadow-xs">
+          <CardContent className="p-4 space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Total Group Deposits
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Period Deposits (মোট জমা)
               </span>
-              <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                <Wallet className="h-4 w-4" />
+              <div className="p-1.5 bg-emerald-500/10 text-emerald-600 rounded-lg shrink-0">
+                <TrendingUp className="h-3.5 w-3.5" />
               </div>
             </div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-2">
-              {formatBDT(period.total_deposit)}
+            <div className="text-xl sm:text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 truncate">
+              +{formatBDT(period.total_deposit)}
             </div>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              {lifetime.active_members_count} active mess members
+            <p className="text-[11px] text-muted-foreground truncate">
+              Period net: {formatBDT(period.net_flow ?? (period.total_deposit - period.total_cost))} ({report.daily_payments?.length ?? 0} payment days)
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* 4. Net Current Balance (Closing) */}
+        <Card
+          className={`border shadow-xs transition-all ${
+            isClosingPositive
+              ? "border-emerald-500/40 bg-gradient-to-br from-card via-card to-emerald-500/5"
+              : "border-destructive/40 bg-gradient-to-br from-card via-card to-destructive/5"
+          }`}
+        >
+          <CardContent className="p-4 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Closing Balance (বর্তমান ব্যালেন্স)
+              </span>
+              <Badge
+                variant={isClosingPositive ? "success" : "destructive"}
+                className="text-[10px] px-1.5 py-0"
+              >
+                {isClosingPositive ? "Surplus Fund" : "Net Due / Deficit"}
+              </Badge>
+            </div>
+            <div
+              className={`text-xl sm:text-2xl font-extrabold truncate ${
+                isClosingPositive
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-destructive"
+              }`}
+            >
+              {formatBDT(closing?.balance ?? lifetime.balance)}
+            </div>
+            <p className="text-[11px] text-muted-foreground truncate">
+              Previous Balance + Deposits - Meal Cost
             </p>
           </CardContent>
         </Card>
