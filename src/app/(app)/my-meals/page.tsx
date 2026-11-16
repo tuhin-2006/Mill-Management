@@ -2,25 +2,37 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { UtensilsCrossed, Calendar, Filter, RotateCcw, Download } from "lucide-react";
+import {
+  UtensilsCrossed,
+  Calendar,
+  Filter,
+  RotateCcw,
+  Download,
+  Wallet,
+  TrendingUp,
+  Receipt,
+  CreditCard,
+  Search,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { getCurrentUserProfile, getMemberPersonalStatement } from "@/lib/services";
+import { getCurrentUserProfile, getPeriodLedgerReport } from "@/lib/services";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { formatDate, formatBDT, getPresetDateRange, DatePreset } from "@/lib/date";
+import { formatDate, formatFullDate, formatBDT, getPresetDateRange, DatePreset } from "@/lib/date";
 import { downloadCSV } from "@/lib/csv";
-import { MemberPersonalStatement } from "@/types";
+import { PeriodLedgerReport } from "@/types";
 import { toast } from "sonner";
 
 export default function MyMealsPage() {
   const router = useRouter();
-  const [statement, setStatement] = React.useState<MemberPersonalStatement | null>(null);
+  const [report, setReport] = React.useState<PeriodLedgerReport | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [memberId, setMemberId] = React.useState<string | null>(null);
+  const [paymentSearch, setPaymentSearch] = React.useState("");
 
   const [activePreset, setActivePreset] = React.useState<DatePreset | "custom">("this_month");
   const defaultRange = React.useMemo(() => getPresetDateRange("this_month"), []);
@@ -50,18 +62,18 @@ export default function MyMealsPage() {
       try {
         setIsLoading(true);
         const supabase = createClient();
-        const res = await getMemberPersonalStatement(
+        const res = await getPeriodLedgerReport(
           supabase,
-          memberId!,
           startDate || undefined,
-          endDate || undefined
+          endDate || undefined,
+          memberId!
         );
         if (!ignore) {
-          setStatement(res);
+          setReport(res);
         }
       } catch (err: unknown) {
         if (!ignore) {
-          toast.error("Failed to load meal history: " + (err instanceof Error ? err.message : ""));
+          toast.error("Failed to load meal ledger: " + (err instanceof Error ? err.message : ""));
         }
       } finally {
         if (!ignore) {
@@ -99,29 +111,56 @@ export default function MyMealsPage() {
   };
 
   const handleExportCSV = () => {
-    if (!statement || statement.dailyMeals.length === 0) {
+    if (!report || report.dailyRows.length === 0) {
       toast.info("No meal records to export.");
       return;
     }
-    const headers = ["Date", "Day", "Lunch", "Dinner", "Total Meals", "Unit Price", "Meal Cost (BDT)"];
-    const rows = statement.dailyMeals.map((m) => [
-      m.meal_date,
-      m.day_name,
-      m.lunch.toString(),
-      m.dinner.toString(),
-      m.total_meals.toString(),
-      m.unit_price.toString(),
-      m.cost.toString(),
+    const headers = [
+      "Date",
+      "Day",
+      "Previous Bal (BDT)",
+      "Lunch Meals",
+      "Dinner Meals",
+      "Total Meals",
+      "Daily Cost (BDT)",
+      "Payments Received (BDT)",
+      "Running Bal (BDT)",
+    ];
+    const rows = report.dailyRows.map((r) => [
+      r.meal_date,
+      r.day_name,
+      (r.previous_day_balance ?? 0).toString(),
+      r.lunch_count.toString(),
+      r.dinner_count.toString(),
+      r.total_meals.toString(),
+      r.total_cost.toString(),
+      (r.daily_deposit ?? 0).toString(),
+      (r.running_balance ?? 0).toString(),
     ]);
-    downloadCSV(`my_meal_history_${startDate || "all"}_to_${endDate || "current"}`, headers, rows);
-    toast.success("Meal history exported to CSV.");
+    downloadCSV(`my_meal_ledger_${startDate || "all"}_to_${endDate || "current"}`, headers, rows);
+    toast.success("Meal ledger exported to CSV.");
   };
+
+  const isPreviousDue = (report?.opening.balance ?? 0) < 0;
+  const isClosingPositive = (report?.closing.balance ?? 0) >= 0;
+
+  // Filtered Payments
+  const filteredPayments = React.useMemo(() => {
+    const list = report?.paymentTransactions || [];
+    if (!paymentSearch.trim()) return list;
+    const q = paymentSearch.toLowerCase();
+    return list.filter(
+      (p) =>
+        (p.note && p.note.toLowerCase().includes(q)) ||
+        p.deposit_date.includes(q)
+    );
+  }, [report?.paymentTransactions, paymentSearch]);
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Personal Meal Attendance History"
-        description="Detailed record of all daily lunch and dinner meals logged for your account"
+        title="My Meal Ledger & Running Balance"
+        description="Detailed record of daily lunch & dinner meals, running balance progression, and payment history"
         actions={
           <Button
             variant="outline"
@@ -130,7 +169,7 @@ export default function MyMealsPage() {
             className="gap-1.5 text-xs h-9"
           >
             <Download className="h-4 w-4" />
-            <span>Export Meals CSV</span>
+            <span>Export Ledger CSV</span>
           </Button>
         }
       />
@@ -240,104 +279,460 @@ export default function MyMealsPage() {
         </CardContent>
       </Card>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-4 text-center">
-            <span className="text-xs text-muted-foreground">Period Total Meals</span>
-            <div className="text-2xl font-bold text-foreground mt-1">
-              {statement?.summary.total_meals ?? 0}
+      {/* 4 Financial Period Statement Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
+        {/* 1. Previous Balance (Opening) */}
+        <Card
+          className={`border shadow-xs transition-all ${
+            !startDate
+              ? "border-border"
+              : isPreviousDue
+              ? "border-destructive/40 bg-gradient-to-br from-card via-card to-destructive/5"
+              : "border-emerald-500/40 bg-gradient-to-br from-card via-card to-emerald-500/5"
+          }`}
+        >
+          <CardContent className="p-4 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Previous Balance
+              </span>
+              <Badge
+                variant={!startDate ? "secondary" : isPreviousDue ? "destructive" : "success"}
+                className="text-[10px] px-1.5 py-0"
+              >
+                {!startDate ? "Inception" : isPreviousDue ? "Previous Due" : "Advance B/F"}
+              </Badge>
             </div>
+            <div
+              className={`text-xl sm:text-2xl font-extrabold truncate ${
+                !startDate
+                  ? "text-foreground"
+                  : isPreviousDue
+                  ? "text-destructive"
+                  : "text-emerald-600 dark:text-emerald-400"
+              }`}
+            >
+              {!startDate ? "৳0" : formatBDT(report?.opening.balance ?? 0)}
+            </div>
+            <p className="text-[11px] text-muted-foreground truncate">
+              {!startDate
+                ? "Starting from inception"
+                : `Cost: ${formatBDT(report?.opening.total_cost ?? 0)} • Dep: ${formatBDT(
+                    report?.opening.total_deposit ?? 0
+                  )}`}
+            </p>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <span className="text-xs text-muted-foreground">Lunch Meals</span>
-            <div className="text-2xl font-bold text-foreground mt-1">
-              {statement?.summary.total_lunch ?? 0}
+
+        {/* 2. Period Meal Expense */}
+        <Card className="border-border shadow-xs">
+          <CardContent className="p-4 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Period Meal Expense
+              </span>
+              <div className="p-1.5 bg-primary/10 text-primary rounded-lg shrink-0">
+                <UtensilsCrossed className="h-3.5 w-3.5" />
+              </div>
             </div>
+            <div className="text-xl sm:text-2xl font-extrabold text-foreground truncate">
+              {formatBDT(report?.period.total_cost ?? 0)}
+            </div>
+            <p className="text-[11px] text-muted-foreground truncate">
+              {report?.period.total_meals ?? 0} meals (Lunch: {report?.period.lunch_count ?? 0}, Dinner:{" "}
+              {report?.period.dinner_count ?? 0})
+            </p>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <span className="text-xs text-muted-foreground">Dinner Meals</span>
-            <div className="text-2xl font-bold text-foreground mt-1">
-              {statement?.summary.total_dinner ?? 0}
+
+        {/* 3. Period Deposits */}
+        <Card className="border-border shadow-xs">
+          <CardContent className="p-4 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Period Deposits
+              </span>
+              <div className="p-1.5 bg-emerald-500/10 text-emerald-600 rounded-lg shrink-0">
+                <TrendingUp className="h-3.5 w-3.5" />
+              </div>
             </div>
+            <div className="text-xl sm:text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 truncate">
+              +{formatBDT(report?.period.total_deposit ?? 0)}
+            </div>
+            <p className="text-[11px] text-muted-foreground truncate">
+              Period net: {formatBDT(report?.period.net_flow ?? 0)} ({report?.paymentTransactions?.length ?? 0} deposits)
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* 4. Net Current Balance (Closing) */}
+        <Card
+          className={`border shadow-xs transition-all ${
+            isClosingPositive
+              ? "border-emerald-500/40 bg-gradient-to-br from-card via-card to-emerald-500/5"
+              : "border-destructive/40 bg-gradient-to-br from-card via-card to-destructive/5"
+          }`}
+        >
+          <CardContent className="p-4 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Closing Balance
+              </span>
+              <Badge
+                variant={isClosingPositive ? "success" : "destructive"}
+                className="text-[10px] px-1.5 py-0"
+              >
+                {isClosingPositive ? "Advance / জমা" : "Due / বকেয়া"}
+              </Badge>
+            </div>
+            <div
+              className={`text-xl sm:text-2xl font-extrabold truncate ${
+                isClosingPositive
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-destructive"
+              }`}
+            >
+              {formatBDT(report?.closing.balance ?? 0)}
+            </div>
+            <p className="text-[11px] text-muted-foreground truncate">
+              Previous Balance + Deposits - Meal Cost
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <UtensilsCrossed className="h-4 w-4 text-primary" />
-            <span>Daily Meal Logs</span>
-          </CardTitle>
-          <CardDescription>
-            Chronological breakdown with unit rate applied on each date
-          </CardDescription>
+      {/* Main Table: Daily Session Consumption & Running Balance */}
+      <Card className="border-border shadow-xs">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-border/60">
+          <div>
+            <CardTitle className="text-base sm:text-lg font-bold flex items-center gap-2">
+              <UtensilsCrossed className="h-4 w-4 text-primary" />
+              <span>Daily Session Consumption & Running Balance</span>
+            </CardTitle>
+            <CardDescription>
+              Shows each day&apos;s previous balance, meal cost added, payments received, and updated running balance.
+            </CardDescription>
+          </div>
+          {report && (
+            <Badge variant="outline" className="text-xs self-start sm:self-auto">
+              {report.dailyRows.length} Days Recorded
+            </Badge>
+          )}
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-4">
+          {isLoading ? (
+            <div className="py-16 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-2">
+              <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <span>Loading daily running ledger...</span>
+            </div>
+          ) : !report || report.dailyRows.length === 0 ? (
+            <div className="py-12 text-center text-xs text-muted-foreground">
+              No daily meal entries found in this selected period.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {/* Desktop Table View */}
+              <div className="hidden lg:block overflow-x-auto rounded-xl border border-border bg-card">
+                <table className="w-full text-xs text-left">
+                  <thead className="text-[10px] uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border">
+                    <tr>
+                      <th className="py-3 px-3 font-semibold">Date & Day</th>
+                      <th className="py-3 px-3 text-right font-semibold">Previous Bal (B/F)</th>
+                      <th className="py-3 px-3 text-center font-semibold">Lunch</th>
+                      <th className="py-3 px-3 text-center font-semibold">Dinner</th>
+                      <th className="py-3 px-3 text-center font-semibold">Total Meals</th>
+                      <th className="py-3 px-3 text-right font-semibold">Daily Meal Cost</th>
+                      <th className="py-3 px-3 text-right font-semibold">Payments Received</th>
+                      <th className="py-3 px-3 text-right font-semibold">Running Bal (C/F)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {report.dailyRows.map((row) => {
+                      const hasDeposits = (row.daily_deposit ?? 0) > 0;
+                      const prevBal = row.previous_day_balance ?? 0;
+                      const runBal = row.running_balance ?? 0;
+
+                      return (
+                        <tr key={row.meal_date} className="hover:bg-muted/30 transition-colors">
+                          <td className="py-3 px-3 font-medium text-foreground">
+                            <div className="flex items-center gap-1.5">
+                              <span>{formatDate(row.meal_date)}</span>
+                              <span className="text-[11px] text-muted-foreground">({row.day_name})</span>
+                              {row.is_friday && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] border-amber-500/30 text-amber-700 dark:text-amber-400 py-0"
+                                >
+                                  Friday
+                                </Badge>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="py-3 px-3 text-right font-medium">
+                            <span
+                              className={
+                                prevBal >= 0
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-rose-600 dark:text-rose-400"
+                              }
+                            >
+                              {formatBDT(prevBal)}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3 text-center text-muted-foreground">
+                            {row.lunch_count > 0 ? row.lunch_count : "-"}
+                          </td>
+                          <td className="py-3 px-3 text-center text-muted-foreground">
+                            {row.is_friday ? (
+                              <span className="text-[10px] text-muted-foreground/60 italic">Closed</span>
+                            ) : row.dinner_count > 0 ? (
+                              row.dinner_count
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+
+                          <td className="py-3 px-3 text-center font-bold text-foreground">
+                            {row.total_meals}
+                          </td>
+
+                          <td className="py-3 px-3 text-right font-bold text-primary">
+                            -{formatBDT(row.total_cost)}
+                          </td>
+
+                          <td className="py-3 px-3 text-right">
+                            {hasDeposits ? (
+                              <span className="inline-flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                                +{formatBDT(row.daily_deposit!)}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground/50">-</span>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-3 text-right font-extrabold">
+                            <span
+                              className={
+                                runBal >= 0
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-rose-600 dark:text-rose-400"
+                              }
+                            >
+                              {formatBDT(runBal)}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Phone Card View */}
+              <div className="lg:hidden space-y-3">
+                {report.dailyRows.map((row) => {
+                  const prevBal = row.previous_day_balance ?? 0;
+                  const runBal = row.running_balance ?? 0;
+                  const hasDeposits = (row.daily_deposit ?? 0) > 0;
+
+                  return (
+                    <div
+                      key={row.meal_date}
+                      className="p-3.5 rounded-xl border border-border bg-card shadow-2xs space-y-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-foreground text-sm">
+                            {formatDate(row.meal_date)}
+                          </span>
+                          <span className="text-xs text-muted-foreground">({row.day_name})</span>
+                          {row.is_friday && (
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] border-amber-500/30 text-amber-700 dark:text-amber-400 py-0"
+                            >
+                              Friday
+                            </Badge>
+                          )}
+                        </div>
+                        <span
+                          className={`font-extrabold text-sm ${
+                            runBal >= 0
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-rose-600 dark:text-rose-400"
+                          }`}
+                        >
+                          Bal: {formatBDT(runBal)}
+                        </span>
+                      </div>
+
+                      {/* Balance Progression Bar */}
+                      <div className="grid grid-cols-3 gap-1.5 p-2 rounded-lg bg-muted/40 text-xs text-center border border-border/40">
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">Prev Balance</span>
+                          <span
+                            className={`font-semibold ${
+                              prevBal >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600"
+                            }`}
+                          >
+                            {formatBDT(prevBal)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">Day Meal Cost</span>
+                          <span className="font-semibold text-primary">
+                            -{formatBDT(row.total_cost)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">Payments</span>
+                          <span
+                            className={`font-semibold ${
+                              hasDeposits
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            {hasDeposits ? `+${formatBDT(row.daily_deposit!)}` : "৳0"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Meals Stats */}
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>
+                          {row.total_meals} meals (Lunch: {row.lunch_count}, Dinner: {row.dinner_count})
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Dedicated Section Below: Payment & Deposit Records (কবে payment করা হয়েছে) */}
+      <Card className="border-border shadow-xs">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
+          <div>
+            <CardTitle className="text-base sm:text-lg font-bold flex items-center gap-2">
+              <Wallet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <span>My Payment & Deposit Records (কবে টাকা জমা দিয়েছি)</span>
+            </CardTitle>
+            <CardDescription>
+              Chronological log of all deposits recorded to your account, organized by payment date.
+            </CardDescription>
+          </div>
+
+          {/* Payment Search & Count */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="Search note or date..."
+                value={paymentSearch}
+                onChange={(e) => setPaymentSearch(e.target.value)}
+                className="h-8 pl-8 text-xs w-[170px] sm:w-[210px]"
+              />
+            </div>
+            <Badge variant="outline" className="text-xs shrink-0">
+              {filteredPayments.length} Payments
+            </Badge>
+            <Badge
+              variant="success"
+              className="text-xs shrink-0 font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20"
+            >
+              Total: +{formatBDT(filteredPayments.reduce((acc, p) => acc + p.amount, 0))}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-4">
           {isLoading ? (
             <div className="py-12 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
               <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              <span>Loading meal records...</span>
+              <span>Loading payment records...</span>
             </div>
-          ) : !statement || statement.dailyMeals.length === 0 ? (
-            <div className="py-8 text-center text-xs text-muted-foreground">
-              No meal records found for the selected period.
+          ) : filteredPayments.length === 0 ? (
+            <div className="py-10 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl">
+              <Wallet className="h-8 w-8 mx-auto mb-2 opacity-30 text-emerald-600" />
+              <p className="font-medium text-foreground">No payment records found for this period.</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                All deposits made will automatically organize here by date.
+              </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead>
-                  <tr className="border-b border-border text-muted-foreground uppercase text-[10px] font-semibold">
-                    <th className="py-2.5 px-3">Date</th>
-                    <th className="py-2.5 px-3">Day</th>
-                    <th className="py-2.5 px-3 text-center">Lunch</th>
-                    <th className="py-2.5 px-3 text-center">Dinner</th>
-                    <th className="py-2.5 px-3 text-center">Total Meals</th>
-                    <th className="py-2.5 px-3 text-right">Unit Rate</th>
-                    <th className="py-2.5 px-3 text-right">Cost (BDT)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/60">
-                  {statement.dailyMeals.map((row) => (
-                    <tr key={row.meal_date} className="hover:bg-muted/30 transition-colors">
-                      <td className="py-2.5 px-3 font-medium text-foreground">
-                        {formatDate(row.meal_date)}
-                        {row.is_friday && (
-                          <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 font-semibold">
-                            Friday
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3 text-muted-foreground">{row.day_name}</td>
-                      <td className="py-2.5 px-3 text-center">{row.lunch > 0 ? row.lunch : "-"}</td>
-                      <td className="py-2.5 px-3 text-center">
-                        {row.is_friday ? (
-                          <span className="text-[10px] text-muted-foreground">Closed</span>
-                        ) : row.dinner > 0 ? (
-                          row.dinner
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3 text-center font-bold text-foreground">
-                        {row.total_meals}
-                      </td>
-                      <td className="py-2.5 px-3 text-right text-muted-foreground">
-                        {formatBDT(row.unit_price)}
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-bold text-foreground">
-                        {formatBDT(row.cost)}
-                      </td>
+            <div className="space-y-3">
+              {/* Desktop Table View */}
+              <div className="hidden sm:block overflow-x-auto rounded-xl border border-border bg-card">
+                <table className="w-full text-xs text-left">
+                  <thead className="text-[10px] uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border">
+                    <tr>
+                      <th className="py-3 px-3.5 font-semibold">Payment Date</th>
+                      <th className="py-3 px-3.5 font-semibold">Payment Note / Method</th>
+                      <th className="py-3 px-3.5 text-right font-semibold">Amount Credited</th>
+                      <th className="py-3 px-3.5 text-right font-semibold">Recorded Time</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {filteredPayments.map((p) => (
+                      <tr key={p.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="py-3 px-3.5 font-medium text-foreground whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            <span>{formatDate(p.deposit_date)}</span>
+                          </div>
+                        </td>
+
+                        <td className="py-3 px-3.5 text-muted-foreground">
+                          {p.note || "Regular Mess Deposit"}
+                        </td>
+
+                        <td className="py-3 px-3.5 text-right font-extrabold text-emerald-600 dark:text-emerald-400 text-sm whitespace-nowrap">
+                          +{formatBDT(p.amount)}
+                        </td>
+
+                        <td className="py-3 px-3.5 text-right text-muted-foreground text-[11px] whitespace-nowrap">
+                          {p.created_at ? formatFullDate(p.created_at) : "N/A"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Phone Card View */}
+              <div className="sm:hidden space-y-2.5">
+                {filteredPayments.map((p) => (
+                  <div
+                    key={p.id}
+                    className="p-3 rounded-xl border border-border bg-card shadow-2xs space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 font-medium text-foreground text-xs">
+                        <Calendar className="h-3 w-3 text-muted-foreground" />
+                        <span>{formatDate(p.deposit_date)}</span>
+                      </div>
+                      <span className="font-extrabold text-emerald-600 dark:text-emerald-400 text-sm">
+                        +{formatBDT(p.amount)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs pt-1 border-t border-border/40">
+                      <span className="text-[11px] text-muted-foreground italic truncate max-w-[200px]">
+                        {p.note || "Regular Deposit"}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {p.created_at ? formatDate(p.created_at) : ""}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </CardContent>

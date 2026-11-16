@@ -961,9 +961,11 @@ export async function getMemberLedger(
 export async function getPeriodLedgerReport(
   supabase: SupabaseClient,
   startDate?: string,
-  endDate?: string
+  endDate?: string,
+  memberId?: string
 ): Promise<PeriodLedgerReport> {
-  const cacheKey = `period_ledger_${startDate || "all"}_${endDate || "all"}`;
+  const isMemberFiltered = Boolean(memberId && memberId !== "all");
+  const cacheKey = `period_ledger_${startDate || "all"}_${endDate || "all"}_${memberId || "all"}`;
   const cached = getFromCache<PeriodLedgerReport>(cacheKey);
   if (cached) return cached;
 
@@ -978,17 +980,22 @@ export async function getPeriodLedgerReport(
       return {
         startDate,
         endDate,
+        selectedMemberId: memberId || "all",
         opening: { total_meals: 0, total_cost: 0, total_deposit: 0, balance: 0, unpaid: 0, advance: 0 },
         period: { total_meals: 0, lunch_count: 0, dinner_count: 0, total_cost: 0, total_deposit: 0, net_flow: 0, active_days: 0 },
         closing: { total_cost: 0, total_deposit: 0, balance: 0, unpaid: 0, advance: 0 },
         dailyRows: [],
         memberStatements: [],
+        paymentTransactions: [],
       };
     }
     throw new Error(`Failed to load members for ledger: ${membersRes.error.message}`);
   }
 
   const members: Member[] = membersRes.data || [];
+  const targetMember = isMemberFiltered ? members.find((m) => m.id === memberId) : undefined;
+  const targetMemberName = targetMember?.name || "Unknown";
+
   const meals: MealEntry[] = (mealsRes.data || []).map((m) => ({
     ...m,
     unit_price: Number(m.unit_price),
@@ -1039,8 +1046,10 @@ export async function getPeriodLedgerReport(
 
     if (isBeforeStart) {
       if (meal.quantity > 0) {
-        openingMealsCount += meal.quantity;
-        openingCost += mealCost;
+        if (!isMemberFiltered || meal.member_id === memberId) {
+          openingMealsCount += meal.quantity;
+          openingCost += mealCost;
+        }
         const prev = memberPreviousMap.get(meal.member_id);
         if (prev) {
           prev.cost += mealCost;
@@ -1048,10 +1057,16 @@ export async function getPeriodLedgerReport(
       }
     } else if (isInPeriod) {
       if (meal.quantity > 0) {
-        periodMealsCount += meal.quantity;
-        periodCost += mealCost;
-        if (meal.session === "lunch") periodLunchCount += meal.quantity;
-        if (meal.session === "dinner") periodDinnerCount += meal.quantity;
+        if (!isMemberFiltered || meal.member_id === memberId) {
+          periodMealsCount += meal.quantity;
+          periodCost += mealCost;
+          if (meal.session === "lunch") periodLunchCount += meal.quantity;
+          if (meal.session === "dinner") periodDinnerCount += meal.quantity;
+
+          const dateList = dailyPeriodMealMap.get(meal.meal_date) || [];
+          dateList.push(meal);
+          dailyPeriodMealMap.set(meal.meal_date, dateList);
+        }
 
         const pMember = memberPeriodMap.get(meal.member_id);
         if (pMember) {
@@ -1060,10 +1075,6 @@ export async function getPeriodLedgerReport(
           if (meal.session === "lunch") pMember.lunch += meal.quantity;
           if (meal.session === "dinner") pMember.dinner += meal.quantity;
         }
-
-        const dateList = dailyPeriodMealMap.get(meal.meal_date) || [];
-        dateList.push(meal);
-        dailyPeriodMealMap.set(meal.meal_date, dateList);
       }
     }
   }
@@ -1075,33 +1086,38 @@ export async function getPeriodLedgerReport(
     const isInPeriod = !isBeforeStart && !isAfterEnd;
 
     if (isBeforeStart) {
-      openingDeposit += dep.amount;
+      if (!isMemberFiltered || dep.member_id === memberId) {
+        openingDeposit += dep.amount;
+      }
       const prev = memberPreviousMap.get(dep.member_id);
       if (prev) {
         prev.deposit += dep.amount;
       }
     } else if (isInPeriod) {
-      periodDeposit += dep.amount;
+      if (!isMemberFiltered || dep.member_id === memberId) {
+        periodDeposit += dep.amount;
+
+        // Add to daily deposit map
+        const dateList = dailyPeriodDepositMap.get(dep.deposit_date) || [];
+        dateList.push(dep);
+        dailyPeriodDepositMap.set(dep.deposit_date, dateList);
+
+        // Record payment transaction
+        paymentTransactions.push({
+          id: dep.id,
+          deposit_date: dep.deposit_date,
+          member_id: dep.member_id,
+          member_name: memberMap.get(dep.member_id) || "Unknown",
+          amount: dep.amount,
+          note: dep.note || undefined,
+          created_at: dep.created_at,
+        });
+      }
+
       const pMember = memberPeriodMap.get(dep.member_id);
       if (pMember) {
         pMember.deposit += dep.amount;
       }
-
-      // Add to daily deposit map
-      const dateList = dailyPeriodDepositMap.get(dep.deposit_date) || [];
-      dateList.push(dep);
-      dailyPeriodDepositMap.set(dep.deposit_date, dateList);
-
-      // Record payment transaction
-      paymentTransactions.push({
-        id: dep.id,
-        deposit_date: dep.deposit_date,
-        member_id: dep.member_id,
-        member_name: memberMap.get(dep.member_id) || "Unknown",
-        amount: dep.amount,
-        note: dep.note || undefined,
-        created_at: dep.created_at,
-      });
     }
   }
 
@@ -1239,6 +1255,9 @@ export async function getPeriodLedgerReport(
   const report: PeriodLedgerReport = {
     startDate,
     endDate,
+    selectedMemberId: memberId || "all",
+    selectedMemberName: isMemberFiltered ? targetMemberName : undefined,
+    allMembers: members,
     opening: {
       total_meals: openingMealsCount,
       total_cost: openingCost,

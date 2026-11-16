@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   Download,
   Calendar,
@@ -16,7 +17,9 @@ import {
   AlertCircle,
   CreditCard,
   User,
+  Users,
   Search,
+  X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { getPeriodLedgerReport } from "@/lib/services";
@@ -33,6 +36,7 @@ import {
   DailyLedgerRow,
   PeriodPaymentRecord,
   PeriodMemberStatement,
+  Member,
 } from "@/types";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -45,6 +49,33 @@ import { toast } from "sonner";
 type LedgerTab = "daily" | "payments" | "members";
 
 export default function TotalMillLedgerPage() {
+  return (
+    <React.Suspense
+      fallback={
+        <div className="py-20 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-2">
+          <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <span>Loading meal ledger...</span>
+        </div>
+      }
+    >
+      <LedgerPageContent />
+    </React.Suspense>
+  );
+}
+
+function LedgerPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialMember = searchParams?.get("member") || "all";
+  const [selectedMemberId, setSelectedMemberId] = React.useState<string>(initialMember);
+
+  React.useEffect(() => {
+    const memberParam = searchParams?.get("member");
+    if (memberParam && memberParam !== selectedMemberId) {
+      setSelectedMemberId(memberParam);
+    }
+  }, [searchParams, selectedMemberId]);
+
   const defaultRange = React.useMemo(() => getPresetDateRange("this_month"), []);
   const [activePreset, setActivePreset] = React.useState<DatePreset | "custom">("this_month");
   const [startDate, setStartDate] = React.useState(defaultRange.startDate);
@@ -63,7 +94,7 @@ export default function TotalMillLedgerPage() {
       try {
         setIsLoading(true);
         const supabase = createClient();
-        const data = await getPeriodLedgerReport(supabase, startDate, endDate);
+        const data = await getPeriodLedgerReport(supabase, startDate, endDate, selectedMemberId);
         if (!ignore) {
           setReport(data);
         }
@@ -82,7 +113,16 @@ export default function TotalMillLedgerPage() {
     return () => {
       ignore = true;
     };
-  }, [startDate, endDate]);
+  }, [startDate, endDate, selectedMemberId]);
+
+  const handleMemberChange = (memberId: string) => {
+    setSelectedMemberId(memberId);
+    if (memberId === "all") {
+      router.replace("/ledger");
+    } else {
+      router.replace(`/ledger?member=${memberId}`);
+    }
+  };
 
   // Handle Preset Buttons
   const handlePreset = (preset: DatePreset) => {
@@ -207,10 +247,29 @@ export default function TotalMillLedgerPage() {
     <div className="space-y-6">
       {/* Page Header */}
       <PageHeader
-        title="Total Mill Ledger"
-        description="Daily meal accounting, previous & running balance calculation, and dedicated payment logs."
+        title={
+          report?.selectedMemberName
+            ? `${report.selectedMemberName} — Meal Ledger`
+            : "Total Mill Ledger"
+        }
+        description={
+          report?.selectedMemberName
+            ? `Daily meal attendance, previous & running balance progression, and deposit records for ${report.selectedMemberName}.`
+            : "Daily meal accounting, previous & running balance calculation, and dedicated payment logs."
+        }
         actions={
           <div className="flex items-center gap-2">
+            {report?.selectedMemberName && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleMemberChange("all")}
+                className="gap-1.5 h-9 text-xs"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>All Members View</span>
+              </Button>
+            )}
             {activeTab === "payments" ? (
               <Button
                 variant="outline"
@@ -303,9 +362,9 @@ export default function TotalMillLedgerPage() {
             </div>
           </div>
 
-          {/* Custom Date Pickers */}
+          {/* Custom Date Pickers & Member Filter */}
           <div className="pt-2 border-t border-border/60 flex flex-wrap items-end gap-3">
-            <div className="space-y-1 flex-1 sm:flex-initial min-w-[140px]">
+            <div className="space-y-1 flex-1 sm:flex-initial min-w-[130px]">
               <Label htmlFor="start-date" className="text-[11px] font-semibold text-muted-foreground">
                 From Date
               </Label>
@@ -317,7 +376,7 @@ export default function TotalMillLedgerPage() {
                 className="h-9 text-xs"
               />
             </div>
-            <div className="space-y-1 flex-1 sm:flex-initial min-w-[140px]">
+            <div className="space-y-1 flex-1 sm:flex-initial min-w-[130px]">
               <Label htmlFor="end-date" className="text-[11px] font-semibold text-muted-foreground">
                 To Date
               </Label>
@@ -329,6 +388,28 @@ export default function TotalMillLedgerPage() {
                 className="h-9 text-xs"
               />
             </div>
+
+            {/* Member Ledger Filter Dropdown */}
+            <div className="space-y-1 flex-1 sm:flex-initial min-w-[190px]">
+              <Label htmlFor="member-filter" className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
+                <Users className="h-3.5 w-3.5 text-primary" />
+                <span>Member Ledger Filter</span>
+              </Label>
+              <select
+                id="member-filter"
+                value={selectedMemberId}
+                onChange={(e) => handleMemberChange(e.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-background px-2.5 py-1 text-xs shadow-xs transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+              >
+                <option value="all">👥 All Members (Total Mess)</option>
+                {(report?.allMembers || []).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    👤 {m.name} {m.status === "inactive" ? "(Inactive)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
@@ -337,8 +418,20 @@ export default function TotalMillLedgerPage() {
                 className="h-9 text-xs gap-1.5"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
-                <span>Reset to All</span>
+                <span>Reset Dates</span>
               </Button>
+
+              {selectedMemberId !== "all" && report?.selectedMemberName && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleMemberChange("all")}
+                  className="h-9 text-xs gap-1.5 bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  <span>Viewing: {report.selectedMemberName}</span>
+                </Button>
+              )}
             </div>
           </div>
         </CardContent>
@@ -527,22 +620,29 @@ export default function TotalMillLedgerPage() {
           TAB 1: DAILY RUNNING LEDGER
           ========================================================================= */}
       {activeTab === "daily" && (
-        <Card className="border-border shadow-xs">
-          <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-border/60">
-            <div>
-              <CardTitle className="text-base sm:text-lg font-bold flex items-center gap-2">
-                <span>Daily Session Consumption & Running Balance</span>
-              </CardTitle>
-              <CardDescription>
-                Shows each day&apos;s previous balance, meal cost added, payments received, and updated running balance.
-              </CardDescription>
-            </div>
-            {report && (
-              <Badge variant="outline" className="text-xs self-start sm:self-auto">
-                {report.dailyRows.length} Days Recorded
-              </Badge>
-            )}
-          </CardHeader>
+        <div className="space-y-6">
+          <Card className="border-border shadow-xs">
+            <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-border/60">
+              <div>
+                <CardTitle className="text-base sm:text-lg font-bold flex items-center gap-2">
+                  <span>
+                    {report?.selectedMemberName
+                      ? `${report.selectedMemberName} — Daily Session Consumption & Running Balance`
+                      : "Daily Session Consumption & Running Balance"}
+                  </span>
+                </CardTitle>
+                <CardDescription>
+                  {report?.selectedMemberName
+                    ? `Shows each day's previous balance, meal cost added, payments received, and updated running balance for ${report.selectedMemberName}.`
+                    : "Shows each day's previous balance, meal cost added, payments received, and updated running balance."}
+                </CardDescription>
+              </div>
+              {report && (
+                <Badge variant="outline" className="text-xs self-start sm:self-auto">
+                  {report.dailyRows.length} Days Recorded
+                </Badge>
+              )}
+            </CardHeader>
           <CardContent className="pt-4">
             {isLoading ? (
               <div className="py-16 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-2">
@@ -904,7 +1004,154 @@ export default function TotalMillLedgerPage() {
             )}
           </CardContent>
         </Card>
-      )}
+
+        {/* =========================================================================
+            DEDICATED PAYMENT & DEPOSIT HISTORY (কবে payment করা হয়েছে - Organized by Date)
+            ========================================================================= */}
+        <Card className="border-border shadow-xs">
+          <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
+            <div>
+              <CardTitle className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <Wallet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <span>
+                  {report?.selectedMemberName
+                    ? `${report.selectedMemberName}'s Payment & Deposit Records (জমা বিবরণী)`
+                    : "Payment & Deposit History (পেমেন্ট হিস্ট্রি - কবে টাকা জমা দেওয়া হয়েছে)"}
+                </span>
+              </CardTitle>
+              <CardDescription>
+                {report?.selectedMemberName
+                  ? `Chronological record of all payments and deposits received from ${report.selectedMemberName}, organized by date.`
+                  : "Chronological audit of deposits received: payment date, depositor name, remarks, and exact amount credited."}
+              </CardDescription>
+            </div>
+
+            {/* Payment Search & Count Badges */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <Search className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Search note or member..."
+                  value={paymentSearch}
+                  onChange={(e) => setPaymentSearch(e.target.value)}
+                  className="h-8 pl-8 text-xs w-[170px] sm:w-[210px]"
+                />
+              </div>
+              <Badge variant="outline" className="text-xs shrink-0">
+                {filteredPayments.length} Payments
+              </Badge>
+              <Badge
+                variant="success"
+                className="text-xs shrink-0 font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20"
+              >
+                Total: +{formatBDT(filteredPayments.reduce((acc, p) => acc + p.amount, 0))}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-4">
+            {isLoading ? (
+              <div className="py-12 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+                <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                <span>Loading payment history...</span>
+              </div>
+            ) : filteredPayments.length === 0 ? (
+              <div className="py-10 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl">
+                <Wallet className="h-8 w-8 mx-auto mb-2 opacity-30 text-emerald-600" />
+                <p className="font-medium text-foreground">No payment records found for this selected period.</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Payments recorded via Deposits will automatically organize here by date.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Desktop & Tablet Table */}
+                <div className="hidden sm:block overflow-x-auto rounded-xl border border-border bg-card">
+                  <table className="w-full text-xs text-left">
+                    <thead className="text-[10px] uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border">
+                      <tr>
+                        <th className="py-3 px-3.5 font-semibold">Payment Date</th>
+                        <th className="py-3 px-3.5 font-semibold">Depositor</th>
+                        <th className="py-3 px-3.5 font-semibold">Note / Payment Method</th>
+                        <th className="py-3 px-3.5 text-right font-semibold">Amount Credited</th>
+                        <th className="py-3 px-3.5 text-right font-semibold">Recorded Time</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {filteredPayments.map((p) => (
+                        <tr key={p.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="py-3 px-3.5 font-medium text-foreground whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <span>{formatDate(p.deposit_date)}</span>
+                            </div>
+                          </td>
+
+                          <td className="py-3 px-3.5 font-semibold text-foreground whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <span className="h-6 w-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold shrink-0">
+                                {p.member_name.slice(0, 2).toUpperCase()}
+                              </span>
+                              <span>{p.member_name}</span>
+                            </div>
+                          </td>
+
+                          <td className="py-3 px-3.5 text-muted-foreground">
+                            <span className="inline-block max-w-[280px] truncate" title={p.note || "Regular Mess Deposit"}>
+                              {p.note || "Regular Mess Deposit"}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3.5 text-right font-extrabold text-emerald-600 dark:text-emerald-400 text-sm whitespace-nowrap">
+                            +{formatBDT(p.amount)}
+                          </td>
+
+                          <td className="py-3 px-3.5 text-right text-muted-foreground text-[11px] whitespace-nowrap">
+                            {p.created_at ? formatFullDate(p.created_at) : "N/A"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Phone Card View */}
+                <div className="sm:hidden space-y-2.5">
+                  {filteredPayments.map((p) => (
+                    <div
+                      key={p.id}
+                      className="p-3 rounded-xl border border-border bg-card shadow-2xs space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 font-medium text-foreground text-xs">
+                          <Calendar className="h-3 w-3 text-muted-foreground" />
+                          <span>{formatDate(p.deposit_date)}</span>
+                        </div>
+                        <span className="font-extrabold text-emerald-600 dark:text-emerald-400 text-sm">
+                          +{formatBDT(p.amount)}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs pt-1 border-t border-border/40">
+                        <span className="font-semibold text-foreground flex items-center gap-1.5">
+                          <span className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-bold">
+                            {p.member_name.slice(0, 2).toUpperCase()}
+                          </span>
+                          <span>{p.member_name}</span>
+                        </span>
+                        <span className="text-[11px] text-muted-foreground italic truncate max-w-[150px]">
+                          {p.note || "Regular Deposit"}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    )}
 
       {/* =========================================================================
           TAB 2: PAYMENT & DEPOSIT DETAILS (কবে payment করা হয়েছে)

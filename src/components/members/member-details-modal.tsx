@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
   X,
   Calendar,
@@ -20,6 +21,7 @@ import {
   History,
   AlertCircle,
   CheckCircle2,
+  ExternalLink,
 } from "lucide-react";
 import { Member } from "@/types";
 import { formatBDT, formatDate, getTodayInDhaka } from "@/lib/date";
@@ -316,6 +318,18 @@ function MemberDetailsDialog({
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {data?.member && (
+              <Link href={`/ledger?member=${data.member.id}`} onClick={onClose}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs gap-1.5 hidden md:inline-flex text-primary hover:text-primary"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  <span>Full Ledger</span>
+                </Button>
+              </Link>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -801,6 +815,57 @@ function MemberDetailsDialog({
                       </table>
                     </div>
                   )}
+
+                  {/* Payment & Deposit History for Member Organized by Date */}
+                  <div className="p-4 rounded-xl border border-border bg-card space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Wallet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                        <span className="font-bold text-xs uppercase tracking-wider text-foreground">
+                          Payment & Deposit Records (কবে টাকা জমা হয়েছে)
+                        </span>
+                      </div>
+                      <Badge variant="outline" className="text-xs">
+                        {filteredDeposits.length} Payments (+{formatBDT(filteredSummary.totalDeposited)})
+                      </Badge>
+                    </div>
+
+                    {filteredDeposits.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-2 text-center border border-dashed border-border rounded-lg">
+                        No payments recorded for this member in this period.
+                      </p>
+                    ) : (
+                      <div className="overflow-x-auto rounded-lg border border-border/60">
+                        <table className="w-full text-xs text-left">
+                          <thead className="bg-muted/40 text-muted-foreground uppercase text-[10px] font-semibold border-b border-border/40">
+                            <tr>
+                              <th className="py-2.5 px-3">Payment Date</th>
+                              <th className="py-2.5 px-3">Payment Note</th>
+                              <th className="py-2.5 px-3 text-right">Amount Credited</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/30">
+                            {filteredDeposits.map((dep) => (
+                              <tr key={dep.id} className="hover:bg-muted/20">
+                                <td className="py-2.5 px-3 font-medium text-foreground">
+                                  <div className="flex items-center gap-1.5">
+                                    <Calendar className="h-3 w-3 text-muted-foreground" />
+                                    <span>{formatDate(dep.deposit_date)}</span>
+                                  </div>
+                                </td>
+                                <td className="py-2.5 px-3 text-muted-foreground">
+                                  {dep.note || "Regular Mess Deposit"}
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400">
+                                  +{formatBDT(dep.amount)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

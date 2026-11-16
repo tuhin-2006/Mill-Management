@@ -178,6 +178,9 @@ export interface PeriodMemberStatement {
 export interface PeriodLedgerReport {
   startDate?: string;
   endDate?: string;
+  selectedMemberId?: string;
+  selectedMemberName?: string;
+  allMembers?: Member[];
   // Opening / Previous before startDate
   opening: {
     total_meals: number;
