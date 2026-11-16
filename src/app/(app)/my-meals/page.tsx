@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { formatDate, formatFullDate, formatBDT, getPresetDateRange, DatePreset } from "@/lib/date";
+import { formatDate, formatFullDate, formatDateTime, formatBDT, getPresetDateRange, DatePreset } from "@/lib/date";
 import { downloadCSV } from "@/lib/csv";
 import { PeriodLedgerReport } from "@/types";
 import { toast } from "sonner";
@@ -697,7 +697,7 @@ export default function MyMealsPage() {
                         </td>
 
                         <td className="py-3 px-3.5 text-right text-muted-foreground text-[11px] whitespace-nowrap">
-                          {p.created_at ? formatFullDate(p.created_at) : "N/A"}
+                          {p.created_at ? formatDateTime(p.created_at) : "N/A"}
                         </td>
                       </tr>
                     ))}

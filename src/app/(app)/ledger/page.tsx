@@ -27,6 +27,7 @@ import {
   formatBDT,
   formatDate,
   formatFullDate,
+  formatDateTime,
   getPresetDateRange,
   DatePreset,
 } from "@/lib/date";
@@ -1107,7 +1108,7 @@ function LedgerPageContent() {
                           </td>
 
                           <td className="py-3 px-3.5 text-right text-muted-foreground text-[11px] whitespace-nowrap">
-                            {p.created_at ? formatFullDate(p.created_at) : "N/A"}
+                            {p.created_at ? formatDateTime(p.created_at) : "N/A"}
                           </td>
                         </tr>
                       ))}
@@ -1236,7 +1237,7 @@ function LedgerPageContent() {
                         </td>
 
                         <td className="py-3 px-3.5 text-right text-muted-foreground text-[11px]">
-                          {p.created_at ? formatFullDate(p.created_at) : "N/A"}
+                          {p.created_at ? formatDateTime(p.created_at) : "N/A"}
                         </td>
                       </tr>
                     ))}

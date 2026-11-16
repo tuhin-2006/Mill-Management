@@ -18,47 +18,105 @@ export function getTodayInDhaka(): string {
 }
 
 /**
- * Formats a YYYY-MM-DD string into a readable date (e.g. "15 Nov 2026").
+ * Safely parses any date string (YYYY-MM-DD, ISO 8601 timestamp, or Date) in Dhaka timezone.
  */
-export function formatDate(dateString: string): string {
-  if (!dateString) return "";
-  const [year, month, day] = dateString.split("-").map(Number);
-  const date = new Date(year, month - 1, day);
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: DHAKA_TIMEZONE,
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(date);
+export function parseDateSafely(dateString?: string | null): Date | null {
+  if (!dateString) return null;
+  const str = dateString.trim();
+  // 1. Pure YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    const [year, month, day] = str.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+  // 2. ISO or standard date
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    return parsed;
+  }
+  // 3. Fallback extraction of YYYY-MM-DD
+  const match = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  }
+  return null;
 }
 
 /**
- * Formats a YYYY-MM-DD string into full date format (e.g. "Sunday, 15 November 2026").
+ * Formats a YYYY-MM-DD string or ISO timestamp into a readable date (e.g. "15 Nov 2026").
  */
-export function formatFullDate(dateString: string): string {
+export function formatDate(dateString?: string | null): string {
   if (!dateString) return "";
-  const [year, month, day] = dateString.split("-").map(Number);
-  const date = new Date(year, month - 1, day);
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: DHAKA_TIMEZONE,
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(date);
+  const date = parseDateSafely(dateString);
+  if (!date || isNaN(date.getTime())) return dateString;
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: DHAKA_TIMEZONE,
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }).format(date);
+  } catch {
+    return dateString;
+  }
+}
+
+/**
+ * Formats a YYYY-MM-DD string or ISO timestamp into full date format (e.g. "Sunday, 15 November 2026").
+ */
+export function formatFullDate(dateString?: string | null): string {
+  if (!dateString) return "";
+  const date = parseDateSafely(dateString);
+  if (!date || isNaN(date.getTime())) return dateString;
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: DHAKA_TIMEZONE,
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    }).format(date);
+  } catch {
+    return dateString;
+  }
+}
+
+/**
+ * Formats an ISO timestamp or date-time into a readable date + time (e.g. "16 Nov 2026, 09:30 PM").
+ */
+export function formatDateTime(dateString?: string | null): string {
+  if (!dateString) return "";
+  const date = parseDateSafely(dateString);
+  if (!date || isNaN(date.getTime())) return dateString;
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: DHAKA_TIMEZONE,
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    }).format(date);
+  } catch {
+    return dateString;
+  }
 }
 
 /**
  * Returns the weekday name (e.g. "Friday", "Saturday") for a given date in Dhaka.
  */
-export function getWeekdayName(dateString: string): string {
+export function getWeekdayName(dateString?: string | null): string {
   if (!dateString) return "";
-  const [year, month, day] = dateString.split("-").map(Number);
-  const date = new Date(year, month - 1, day);
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: DHAKA_TIMEZONE,
-    weekday: "long",
-  }).format(date);
+  const date = parseDateSafely(dateString);
+  if (!date || isNaN(date.getTime())) return "";
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: DHAKA_TIMEZONE,
+      weekday: "long",
+    }).format(date);
+  } catch {
+    return "";
+  }
 }
 
 /**
