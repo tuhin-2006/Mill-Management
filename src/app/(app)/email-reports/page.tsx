@@ -19,6 +19,7 @@ import {
   Calendar,
   Check,
   X,
+  Trash2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { getMembers, getSettings, updateSettings, getEmailLogs } from "@/lib/services";
@@ -135,6 +136,67 @@ export default function EmailReportsPage() {
   // Logs search and filter
   const [logFilter, setLogFilter] = React.useState<"all" | "sent" | "failed" | "skipped_duplicate">("all");
   const [logSearch, setLogSearch] = React.useState("");
+
+  // Log delete and clear states
+  const [isDeletingLogId, setIsDeletingLogId] = React.useState<string | null>(null);
+  const [showClearModal, setShowClearModal] = React.useState(false);
+  const [clearOption, setClearOption] = React.useState<"all" | "failed_or_skipped" | "older_than_30_days">("all");
+  const [isClearingLogs, setIsClearingLogs] = React.useState(false);
+
+  const handleDeleteSingleLog = async (logId: string) => {
+    if (!confirm("Are you sure you want to delete this log entry?")) return;
+
+    try {
+      setIsDeletingLogId(logId);
+      const res = await fetch("/api/admin/dispatch-reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete_single_log",
+          logId,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to delete log");
+      }
+
+      setLogs((prev) => prev.filter((l) => l.id !== logId));
+      toast.success("Log entry deleted successfully.");
+    } catch (err: unknown) {
+      toast.error("Failed to delete log: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setIsDeletingLogId(null);
+    }
+  };
+
+  const handleClearLogs = async () => {
+    try {
+      setIsClearingLogs(true);
+      const res = await fetch("/api/admin/dispatch-reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "clear_email_logs",
+          clearMode: clearOption,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to clear logs");
+      }
+
+      toast.success(data.message || "Audit logs cleared successfully!");
+      setShowClearModal(false);
+      loadData();
+    } catch (err: unknown) {
+      toast.error("Failed to clear logs: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setIsClearingLogs(false);
+    }
+  };
 
   const loadData = React.useCallback(async () => {
     try {
@@ -737,6 +799,19 @@ export default function EmailReportsPage() {
                   Skipped ({skippedCount})
                 </button>
               </div>
+
+              {/* Clear Logs Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowClearModal(true)}
+                disabled={logs.length === 0}
+                className="h-8 text-xs gap-1.5 text-rose-600 hover:bg-rose-500/10 border-rose-500/30 cursor-pointer"
+                title="Clear or delete delivery audit logs"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>Clear Logs</span>
+              </Button>
             </div>
           </div>
         </CardHeader>
@@ -758,6 +833,7 @@ export default function EmailReportsPage() {
                     <th className="py-3 px-4">Type</th>
                     <th className="py-3 px-4 text-center">Status</th>
                     <th className="py-3 px-4">Details</th>
+                    <th className="py-3 px-3 text-center">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
@@ -793,6 +869,21 @@ export default function EmailReportsPage() {
                       </td>
                       <td className="py-3 px-4 text-xs text-muted-foreground max-w-xs truncate">
                         {log.error_message || "Delivered via MailApp"}
+                      </td>
+                      <td className="py-3 px-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSingleLog(log.id)}
+                          disabled={isDeletingLogId === log.id}
+                          className="p-1 rounded text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                          title="Delete this log entry"
+                        >
+                          {isDeletingLogId === log.id ? (
+                            <RotateCw className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -843,6 +934,142 @@ export default function EmailReportsPage() {
                   isLoading={isDispatching}
                 >
                   Confirm & Dispatch
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+      {/* CLEAR LOGS DIALOG */}
+      {showClearModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <Card className="w-full max-w-md shadow-2xl border-border">
+            <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-lg bg-rose-500/10 text-rose-600">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <CardTitle className="text-base font-bold text-foreground">
+                    Clear Delivery Audit Logs
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    ডেলিভারি অডিট হিস্টোরি ও লগ মুছে ফেলুন
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowClearModal(false)}
+                className="text-muted-foreground hover:text-foreground p-1 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </CardHeader>
+            <CardContent className="pt-4 space-y-4">
+              <p className="text-xs text-muted-foreground">
+                অনেক বেশি লগ জমা হলে এখান থেকে সহজে অপ্রয়োজনীয় বা পুরোনো লগগুলো ডিলিট করে পরিষ্কার রাখতে পারেন:
+              </p>
+
+              {/* Options */}
+              <div className="space-y-2">
+                <label
+                  onClick={() => setClearOption("all")}
+                  className={`flex items-start gap-3 p-3 rounded-xl border text-xs cursor-pointer transition-all ${
+                    clearOption === "all"
+                      ? "border-rose-500 bg-rose-500/10 text-foreground font-semibold"
+                      : "border-border hover:bg-muted/50 text-muted-foreground"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="clear_option"
+                    checked={clearOption === "all"}
+                    onChange={() => setClearOption("all")}
+                    className="mt-0.5 text-rose-600"
+                  />
+                  <div>
+                    <span className="block font-bold text-foreground">
+                      সবগুলো লগ মুছুন (Clear All Logs)
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      মোট {logs.length}টি অডিট লগ রেকর্ড সম্পূর্ণ মুছে যাবে
+                    </span>
+                  </div>
+                </label>
+
+                <label
+                  onClick={() => setClearOption("failed_or_skipped")}
+                  className={`flex items-start gap-3 p-3 rounded-xl border text-xs cursor-pointer transition-all ${
+                    clearOption === "failed_or_skipped"
+                      ? "border-rose-500 bg-rose-500/10 text-foreground font-semibold"
+                      : "border-border hover:bg-muted/50 text-muted-foreground"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="clear_option"
+                    checked={clearOption === "failed_or_skipped"}
+                    onChange={() => setClearOption("failed_or_skipped")}
+                    className="mt-0.5 text-rose-600"
+                  />
+                  <div>
+                    <span className="block font-bold text-foreground">
+                      ব্যর্থ ও ডুপ্লিকেট স্কিপড লগ মুছুন (Failed & Skipped Only)
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      মোট {failedCount + skippedCount}টি ব্যর্থ বা অতিরিক্ত রেকর্ড মুছে যাবে, সফলগুলো অক্ষত থাকবে
+                    </span>
+                  </div>
+                </label>
+
+                <label
+                  onClick={() => setClearOption("older_than_30_days")}
+                  className={`flex items-start gap-3 p-3 rounded-xl border text-xs cursor-pointer transition-all ${
+                    clearOption === "older_than_30_days"
+                      ? "border-rose-500 bg-rose-500/10 text-foreground font-semibold"
+                      : "border-border hover:bg-muted/50 text-muted-foreground"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="clear_option"
+                    checked={clearOption === "older_than_30_days"}
+                    onChange={() => setClearOption("older_than_30_days")}
+                    className="mt-0.5 text-rose-600"
+                  />
+                  <div>
+                    <span className="block font-bold text-foreground">
+                      ৩০ দিনের পুরোনো লগ মুছুন (Older Than 30 Days)
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      সাম্প্রতিক ১ মাসের লগ অক্ষত রেখে পুরোনো হিস্টোরি পরিষ্কার করবে
+                    </span>
+                  </div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowClearModal(false)}
+                  disabled={isClearingLogs}
+                  className="h-8 text-xs"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleClearLogs}
+                  isLoading={isClearingLogs}
+                  className="h-8 text-xs gap-1.5"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Confirm & Clear</span>
                 </Button>
               </div>
             </CardContent>

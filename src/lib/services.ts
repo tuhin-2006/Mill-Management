@@ -275,6 +275,43 @@ export async function getEmailLogs(
 }
 
 /**
+ * Delete a single email log entry
+ */
+export async function deleteEmailLog(
+  supabase: SupabaseClient,
+  logId: string
+): Promise<void> {
+  const { error } = await supabase.from("email_logs").delete().eq("id", logId);
+  if (error) {
+    throw new Error(`Failed to delete email log: ${error.message}`);
+  }
+}
+
+/**
+ * Clear email logs by mode
+ */
+export async function clearEmailLogs(
+  supabase: SupabaseClient,
+  mode: "all" | "failed_or_skipped" | "older_than_30_days" = "all"
+): Promise<void> {
+  let query = supabase.from("email_logs").delete();
+
+  if (mode === "failed_or_skipped") {
+    query = query.in("status", ["failed", "skipped_duplicate"]);
+  } else if (mode === "older_than_30_days") {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+    query = query.lt("created_at", thirtyDaysAgo);
+  } else {
+    query = query.neq("id", "00000000-0000-0000-0000-000000000000");
+  }
+
+  const { error } = await query;
+  if (error) {
+    throw new Error(`Failed to clear email logs: ${error.message}`);
+  }
+}
+
+/**
  * 5.1 Delete a member and clean up associated records
  */
 export async function deleteMember(

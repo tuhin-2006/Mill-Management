@@ -77,8 +77,16 @@ export async function POST(req: Request) {
       endDate: rawEndDate,
       force,
       previewOnly,
+      logId,
+      clearMode = "all",
     } = body as {
-      action?: "toggle_auto_email" | "test_preview" | "manual_dispatch" | "single_member_statement";
+      action?:
+        | "toggle_auto_email"
+        | "test_preview"
+        | "manual_dispatch"
+        | "single_member_statement"
+        | "delete_single_log"
+        | "clear_email_logs";
       autoEmailEnabled?: boolean;
       targetEmail?: string;
       memberId?: string;
@@ -89,6 +97,8 @@ export async function POST(req: Request) {
       endDate?: string;
       force?: boolean;
       previewOnly?: boolean;
+      logId?: string;
+      clearMode?: "all" | "failed_or_skipped" | "older_than_30_days";
     };
 
     // Action A: Toggle Automatic Sending Switch (ON / OFF)
@@ -462,6 +472,53 @@ export async function POST(req: Request) {
         success: true,
         message: `Report dispatch completed: ${result.sentCount ?? 0} sent, ${result.skippedCount ?? 0} skipped, ${result.failedCount ?? 0} failed.`,
         result,
+      });
+    }
+
+    // Action E: Delete single audit log
+    if (action === "delete_single_log") {
+      if (!logId) {
+        return NextResponse.json({ error: "Missing required parameter 'logId'." }, { status: 400 });
+      }
+
+      const { error } = await supabase.from("email_logs").delete().eq("id", logId);
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: "Log entry deleted successfully.",
+      });
+    }
+
+    // Action F: Clear audit logs (all, failed_or_skipped, or older_than_30_days)
+    if (action === "clear_email_logs") {
+      let query = supabase.from("email_logs").delete();
+
+      if (clearMode === "failed_or_skipped") {
+        query = query.in("status", ["failed", "skipped_duplicate"]);
+      } else if (clearMode === "older_than_30_days") {
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+        query = query.lt("created_at", thirtyDaysAgo);
+      } else {
+        // clear all rows
+        query = query.neq("id", "00000000-0000-0000-0000-000000000000");
+      }
+
+      const { error } = await query;
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      return NextResponse.json({
+        success: true,
+        message:
+          clearMode === "failed_or_skipped"
+            ? "Cleared failed and duplicate suppressed logs."
+            : clearMode === "older_than_30_days"
+            ? "Cleared logs older than 30 days."
+            : "All delivery audit logs cleared successfully.",
       });
     }
 
