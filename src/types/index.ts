@@ -138,6 +138,15 @@ export interface PeriodPaymentRecord {
   created_at?: string;
 }
 
+export interface DateGroupedPayment {
+  deposit_date: string;
+  day_name: string;
+  is_friday: boolean;
+  total_amount: number;
+  payment_count: number;
+  payments: PeriodPaymentRecord[];
+}
+
 export interface DailyLedgerRow {
   meal_date: string;
   day_name: string;
@@ -211,6 +220,7 @@ export interface PeriodLedgerReport {
   dailyRows: DailyLedgerRow[];
   memberStatements: PeriodMemberStatement[];
   paymentTransactions?: PeriodPaymentRecord[];
+  dateGroupedPayments?: DateGroupedPayment[];
 }
 
 export type EmailDeliveryStatus = "sent" | "failed" | "skipped_duplicate";

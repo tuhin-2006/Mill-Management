@@ -10,6 +10,7 @@ import {
   DailyMemberMealDetail,
   DailyDepositDetail,
   PeriodPaymentRecord,
+  DateGroupedPayment,
   PeriodLedgerReport,
   PeriodMemberStatement,
   UserProfile,
@@ -1124,6 +1125,26 @@ export async function getPeriodLedgerReport(
   // Sort payment transactions newest first
   paymentTransactions.sort((a, b) => b.deposit_date.localeCompare(a.deposit_date));
 
+  // Group payment transactions by date (descending) with aggregated day totals
+  const datePaymentMap = new Map<string, { total_amount: number; payments: PeriodPaymentRecord[] }>();
+  for (const p of paymentTransactions) {
+    const existing = datePaymentMap.get(p.deposit_date) || { total_amount: 0, payments: [] };
+    existing.total_amount += p.amount;
+    existing.payments.push(p);
+    datePaymentMap.set(p.deposit_date, existing);
+  }
+
+  const dateGroupedPayments: DateGroupedPayment[] = Array.from(datePaymentMap.entries())
+    .map(([date, grp]) => ({
+      deposit_date: date,
+      day_name: getWeekdayName(date),
+      is_friday: isFridayDate(date),
+      total_amount: grp.total_amount,
+      payment_count: grp.payments.length,
+      payments: grp.payments,
+    }))
+    .sort((a, b) => b.deposit_date.localeCompare(a.deposit_date));
+
   // Opening calculations
   const openingBalance = openingDeposit - openingCost;
   const openingUnpaid = openingBalance < 0 ? Math.abs(openingBalance) : 0;
@@ -1285,6 +1306,7 @@ export async function getPeriodLedgerReport(
     dailyRows,
     memberStatements,
     paymentTransactions,
+    dateGroupedPayments,
   };
 
   setToCache(cacheKey, report);

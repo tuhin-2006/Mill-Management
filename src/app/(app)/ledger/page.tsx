@@ -29,6 +29,8 @@ import {
   formatFullDate,
   formatDateTime,
   getPresetDateRange,
+  getWeekdayName,
+  isFridayDate,
   DatePreset,
 } from "@/lib/date";
 import { downloadCSV } from "@/lib/csv";
@@ -36,6 +38,7 @@ import {
   PeriodLedgerReport,
   DailyLedgerRow,
   PeriodPaymentRecord,
+  DateGroupedPayment,
   PeriodMemberStatement,
   Member,
 } from "@/types";
@@ -85,6 +88,7 @@ function LedgerPageContent() {
   const [activeTab, setActiveTab] = React.useState<LedgerTab>("daily");
   const [expandedDates, setExpandedDates] = React.useState<Set<string>>(new Set());
   const [paymentSearch, setPaymentSearch] = React.useState("");
+  const [paymentViewMode, setPaymentViewMode] = React.useState<"grouped" | "individual">("grouped");
 
   const [report, setReport] = React.useState<PeriodLedgerReport | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -240,6 +244,27 @@ function LedgerPageContent() {
         p.deposit_date.includes(q)
     );
   }, [report?.paymentTransactions, paymentSearch]);
+
+  // Date-wise Aggregated Payments (Calculated dynamically so it obeys search and filters)
+  const filteredDateGroupedPayments: DateGroupedPayment[] = React.useMemo(() => {
+    const map = new Map<string, { total_amount: number; payments: PeriodPaymentRecord[] }>();
+    for (const p of filteredPayments) {
+      const existing = map.get(p.deposit_date) || { total_amount: 0, payments: [] };
+      existing.total_amount += p.amount;
+      existing.payments.push(p);
+      map.set(p.deposit_date, existing);
+    }
+    return Array.from(map.entries())
+      .map(([date, grp]) => ({
+        deposit_date: date,
+        day_name: getWeekdayName(date),
+        is_friday: isFridayDate(date),
+        total_amount: grp.total_amount,
+        payment_count: grp.payments.length,
+        payments: grp.payments,
+      }))
+      .sort((a, b) => b.deposit_date.localeCompare(a.deposit_date));
+  }, [filteredPayments]);
 
   const isPreviousDue = (report?.opening.balance ?? 0) < 0;
   const isClosingPositive = (report?.closing.balance ?? 0) >= 0;
@@ -736,9 +761,16 @@ function LedgerPageContent() {
 
                               <td className="py-3 px-3 text-right">
                                 {hasDeposits ? (
-                                  <span className="inline-flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
-                                    +{formatBDT(row.daily_deposit!)}
-                                  </span>
+                                  <div className="flex flex-col items-end">
+                                    <span className="inline-flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                                      +{formatBDT(row.daily_deposit!)}
+                                    </span>
+                                    {row.daily_deposits_list && row.daily_deposits_list.length > 1 && (
+                                      <span className="text-[10px] text-muted-foreground font-medium mt-0.5">
+                                        ({row.daily_deposits_list.length} payments)
+                                      </span>
+                                    )}
+                                  </div>
                                 ) : (
                                   <span className="text-muted-foreground/50">-</span>
                                 )}
@@ -1027,7 +1059,7 @@ function LedgerPageContent() {
               </CardDescription>
             </div>
 
-            {/* Payment Search & Count Badges */}
+            {/* Payment Search, Mode Switcher & Count Badges */}
             <div className="flex flex-wrap items-center gap-2">
               <div className="relative">
                 <Search className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
@@ -1036,11 +1068,42 @@ function LedgerPageContent() {
                   placeholder="Search note or member..."
                   value={paymentSearch}
                   onChange={(e) => setPaymentSearch(e.target.value)}
-                  className="h-8 pl-8 text-xs w-[170px] sm:w-[210px]"
+                  className="h-8 pl-8 text-xs w-[160px] sm:w-[190px]"
                 />
               </div>
+
+              {/* View Mode Toggle: Date-Wise Grouped vs Individual Transactions */}
+              <div className="inline-flex items-center p-0.5 rounded-lg bg-muted border border-border text-xs shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setPaymentViewMode("grouped")}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                    paymentViewMode === "grouped"
+                      ? "bg-card text-foreground shadow-2xs font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  title="Group deposits by date and sum daily totals"
+                >
+                  তারিখ অনুযায়ী মোট
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentViewMode("individual")}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                    paymentViewMode === "individual"
+                      ? "bg-card text-foreground shadow-2xs font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  title="View individual transaction line items"
+                >
+                  একক তালিকা
+                </button>
+              </div>
+
               <Badge variant="outline" className="text-xs shrink-0">
-                {filteredPayments.length} Payments
+                {paymentViewMode === "grouped"
+                  ? `${filteredDateGroupedPayments.length} Payment Days`
+                  : `${filteredPayments.length} Payments`}
               </Badge>
               <Badge
                 variant="success"
@@ -1064,7 +1127,167 @@ function LedgerPageContent() {
                   Payments recorded via Deposits will automatically organize here by date.
                 </p>
               </div>
+            ) : paymentViewMode === "grouped" ? (
+              /* =========================================================
+                 VIEW 1: DATE-WISE GROUPED PAYMENTS (তারিখভিত্তিক মোট জমা)
+                 Sums up all payments per date & shows contributor breakdown
+                 ========================================================= */
+              <div className="space-y-3">
+                {/* Desktop & Tablet Grouped Table */}
+                <div className="hidden sm:block overflow-x-auto rounded-xl border border-border bg-card">
+                  <table className="w-full text-xs text-left">
+                    <thead className="text-[10px] uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border">
+                      <tr>
+                        <th className="py-3 px-3.5 font-semibold">Payment Date</th>
+                        <th className="py-3 px-3.5 text-right font-semibold">Total Paid on Date (মোট জমা)</th>
+                        <th className="py-3 px-3.5 font-semibold">Contributors & Breakdown (কার কত টাকা জমা)</th>
+                        <th className="py-3 px-3.5 text-right font-semibold">Time Recorded</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {filteredDateGroupedPayments.map((grp) => (
+                        <tr key={grp.deposit_date} className="hover:bg-muted/30 transition-colors">
+                          <td className="py-3.5 px-3.5 font-medium text-foreground whitespace-nowrap align-top">
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                              <span className="font-bold text-xs">{formatDate(grp.deposit_date)}</span>
+                              <span className="text-[11px] text-muted-foreground">({grp.day_name})</span>
+                              {grp.is_friday && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] border-amber-500/30 text-amber-700 dark:text-amber-400 py-0"
+                                >
+                                  Friday
+                                </Badge>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-muted-foreground block mt-0.5 ml-5">
+                              {grp.payment_count} {grp.payment_count > 1 ? "deposits received" : "deposit"}
+                            </span>
+                          </td>
+
+                          <td className="py-3.5 px-3.5 text-right whitespace-nowrap align-top">
+                            <span className="inline-flex items-center gap-1 font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg text-sm">
+                              +{formatBDT(grp.total_amount)}
+                            </span>
+                            {grp.payments.length > 1 && (
+                              <span className="text-[10px] text-muted-foreground block mt-0.5">
+                                {grp.payments.length} জনের সর্বমোট
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="py-3.5 px-3.5 align-top">
+                            <div className="flex flex-wrap gap-2">
+                              {grp.payments.map((p) => (
+                                <div
+                                  key={p.id}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-muted/40 border border-border/60 text-xs shadow-2xs"
+                                >
+                                  <span className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-bold shrink-0">
+                                    {p.member_name.slice(0, 2).toUpperCase()}
+                                  </span>
+                                  <span className="font-semibold text-foreground">{p.member_name}</span>
+                                  <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                                    +{formatBDT(p.amount)}
+                                  </span>
+                                  {p.note && (
+                                    <span
+                                      className="text-[10px] text-muted-foreground italic truncate max-w-[150px]"
+                                      title={p.note}
+                                    >
+                                      • {p.note}
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-3.5 text-right text-muted-foreground text-[11px] whitespace-nowrap align-top">
+                            <div className="space-y-0.5">
+                              {grp.payments.map((p) => (
+                                <div key={p.id}>
+                                  {grp.payments.length > 1 && (
+                                    <span className="text-muted-foreground text-[10px]">{p.member_name}: </span>
+                                  )}
+                                  <span className="font-medium text-foreground">
+                                    {p.created_at ? formatDateTime(p.created_at) : "N/A"}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Phone Grouped Card View */}
+                <div className="sm:hidden space-y-2.5">
+                  {filteredDateGroupedPayments.map((grp) => (
+                    <div
+                      key={grp.deposit_date}
+                      className="p-3.5 rounded-xl border border-border bg-card shadow-2xs space-y-2.5"
+                    >
+                      <div className="flex items-center justify-between border-b border-border/40 pb-2">
+                        <div className="flex items-center gap-1.5 font-bold text-foreground text-xs">
+                          <Calendar className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span>{formatDate(grp.deposit_date)}</span>
+                          <span className="text-[11px] font-normal text-muted-foreground">({grp.day_name})</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md text-xs">
+                            +{formatBDT(grp.total_amount)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 pt-0.5">
+                        <span className="text-[10px] uppercase font-semibold text-muted-foreground block tracking-wider">
+                          Contributors ({grp.payment_count} {grp.payment_count > 1 ? "payments" : "payment"}):
+                        </span>
+                        {grp.payments.map((p) => (
+                          <div
+                            key={p.id}
+                            className="flex items-center justify-between text-xs py-1.5 px-2 rounded-lg bg-muted/40 border border-border/30"
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-bold shrink-0">
+                                {p.member_name.slice(0, 2).toUpperCase()}
+                              </span>
+                              <div className="truncate">
+                                <span className="font-semibold text-foreground block truncate">{p.member_name}</span>
+                                {p.note && (
+                                  <span className="text-[10px] text-muted-foreground italic block truncate">
+                                    {p.note}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right shrink-0 ml-2">
+                              <span className="font-extrabold text-emerald-600 dark:text-emerald-400 block">
+                                +{formatBDT(p.amount)}
+                              </span>
+                              {p.created_at && (
+                                <span className="text-[9px] text-muted-foreground block">
+                                  {formatDateTime(p.created_at)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             ) : (
+              /* =========================================================
+                 VIEW 2: INDIVIDUAL TRANSACTIONS (একক তালিকা)
+                 Detailed line-by-line audit table
+                 ========================================================= */
               <div className="space-y-3">
                 {/* Desktop & Tablet Table */}
                 <div className="hidden sm:block overflow-x-auto rounded-xl border border-border bg-card">
@@ -1170,8 +1393,8 @@ function LedgerPageContent() {
               </CardDescription>
             </div>
 
-            {/* Payment Search & Count */}
-            <div className="flex items-center gap-2">
+            {/* Payment Search, Mode Switcher & Count */}
+            <div className="flex flex-wrap items-center gap-2">
               <div className="relative">
                 <Search className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
                 <Input
@@ -1179,11 +1402,48 @@ function LedgerPageContent() {
                   placeholder="Search member or note..."
                   value={paymentSearch}
                   onChange={(e) => setPaymentSearch(e.target.value)}
-                  className="h-8 pl-8 text-xs w-[180px] sm:w-[220px]"
+                  className="h-8 pl-8 text-xs w-[160px] sm:w-[190px]"
                 />
               </div>
+
+              {/* View Mode Toggle: Date-Wise Grouped vs Individual Transactions */}
+              <div className="inline-flex items-center p-0.5 rounded-lg bg-muted border border-border text-xs shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setPaymentViewMode("grouped")}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                    paymentViewMode === "grouped"
+                      ? "bg-card text-foreground shadow-2xs font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  title="Group deposits by date and sum daily totals"
+                >
+                  তারিখ অনুযায়ী মোট
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentViewMode("individual")}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                    paymentViewMode === "individual"
+                      ? "bg-card text-foreground shadow-2xs font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  title="View individual transaction line items"
+                >
+                  একক তালিকা
+                </button>
+              </div>
+
               <Badge variant="outline" className="text-xs shrink-0">
-                {filteredPayments.length} Payments
+                {paymentViewMode === "grouped"
+                  ? `${filteredDateGroupedPayments.length} Payment Days`
+                  : `${filteredPayments.length} Payments`}
+              </Badge>
+              <Badge
+                variant="success"
+                className="text-xs shrink-0 font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20"
+              >
+                Total: +{formatBDT(filteredPayments.reduce((acc, p) => acc + p.amount, 0))}
               </Badge>
             </div>
           </CardHeader>
@@ -1197,52 +1457,238 @@ function LedgerPageContent() {
               <div className="py-12 text-center text-xs text-muted-foreground">
                 No payment transactions found matching the filter or date range.
               </div>
-            ) : (
-              <div className="overflow-x-auto rounded-xl border border-border bg-card">
-                <table className="w-full text-xs text-left">
-                  <thead className="text-[10px] uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border">
-                    <tr>
-                      <th className="py-3 px-3.5 font-semibold">Payment Date</th>
-                      <th className="py-3 px-3.5 font-semibold">Member</th>
-                      <th className="py-3 px-3.5 font-semibold">Payment Note / Method</th>
-                      <th className="py-3 px-3.5 text-right font-semibold">Amount (BDT)</th>
-                      <th className="py-3 px-3.5 text-right font-semibold">Recorded Time</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {filteredPayments.map((p) => (
-                      <tr key={p.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="py-3 px-3.5 font-medium text-foreground">
-                          <div className="flex items-center gap-1.5">
-                            <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                            <span>{formatDate(p.deposit_date)}</span>
-                          </div>
-                        </td>
-
-                        <td className="py-3 px-3.5 font-semibold text-foreground">
-                          <div className="flex items-center gap-1.5">
-                            <span className="h-6 w-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">
-                              {p.member_name.slice(0, 2).toUpperCase()}
-                            </span>
-                            <span>{p.member_name}</span>
-                          </div>
-                        </td>
-
-                        <td className="py-3 px-3.5 text-muted-foreground">
-                          {p.note || "Regular Mess Deposit"}
-                        </td>
-
-                        <td className="py-3 px-3.5 text-right font-extrabold text-emerald-600 dark:text-emerald-400 text-sm">
-                          +{formatBDT(p.amount)}
-                        </td>
-
-                        <td className="py-3 px-3.5 text-right text-muted-foreground text-[11px]">
-                          {p.created_at ? formatDateTime(p.created_at) : "N/A"}
-                        </td>
+            ) : paymentViewMode === "grouped" ? (
+              <div className="space-y-3">
+                {/* Desktop & Tablet Grouped Table */}
+                <div className="hidden sm:block overflow-x-auto rounded-xl border border-border bg-card">
+                  <table className="w-full text-xs text-left">
+                    <thead className="text-[10px] uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border">
+                      <tr>
+                        <th className="py-3 px-3.5 font-semibold">Payment Date</th>
+                        <th className="py-3 px-3.5 text-right font-semibold">Total Paid on Date (মোট জমা)</th>
+                        <th className="py-3 px-3.5 font-semibold">Contributors & Breakdown (কার কত টাকা জমা)</th>
+                        <th className="py-3 px-3.5 text-right font-semibold">Time Recorded</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {filteredDateGroupedPayments.map((grp) => (
+                        <tr key={grp.deposit_date} className="hover:bg-muted/30 transition-colors">
+                          <td className="py-3.5 px-3.5 font-medium text-foreground whitespace-nowrap align-top">
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                              <span className="font-bold text-xs">{formatDate(grp.deposit_date)}</span>
+                              <span className="text-[11px] text-muted-foreground">({grp.day_name})</span>
+                              {grp.is_friday && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] border-amber-500/30 text-amber-700 dark:text-amber-400 py-0"
+                                >
+                                  Friday
+                                </Badge>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-muted-foreground block mt-0.5 ml-5">
+                              {grp.payment_count} {grp.payment_count > 1 ? "deposits received" : "deposit"}
+                            </span>
+                          </td>
+
+                          <td className="py-3.5 px-3.5 text-right whitespace-nowrap align-top">
+                            <span className="inline-flex items-center gap-1 font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg text-sm">
+                              +{formatBDT(grp.total_amount)}
+                            </span>
+                            {grp.payments.length > 1 && (
+                              <span className="text-[10px] text-muted-foreground block mt-0.5">
+                                {grp.payments.length} জনের সর্বমোট
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="py-3.5 px-3.5 align-top">
+                            <div className="flex flex-wrap gap-2">
+                              {grp.payments.map((p) => (
+                                <div
+                                  key={p.id}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-muted/40 border border-border/60 text-xs shadow-2xs"
+                                >
+                                  <span className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-bold shrink-0">
+                                    {p.member_name.slice(0, 2).toUpperCase()}
+                                  </span>
+                                  <span className="font-semibold text-foreground">{p.member_name}</span>
+                                  <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                                    +{formatBDT(p.amount)}
+                                  </span>
+                                  {p.note && (
+                                    <span
+                                      className="text-[10px] text-muted-foreground italic truncate max-w-[150px]"
+                                      title={p.note}
+                                    >
+                                      • {p.note}
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-3.5 text-right text-muted-foreground text-[11px] whitespace-nowrap align-top">
+                            <div className="space-y-0.5">
+                              {grp.payments.map((p) => (
+                                <div key={p.id}>
+                                  {grp.payments.length > 1 && (
+                                    <span className="text-muted-foreground text-[10px]">{p.member_name}: </span>
+                                  )}
+                                  <span className="font-medium text-foreground">
+                                    {p.created_at ? formatDateTime(p.created_at) : "N/A"}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Phone Grouped Card View */}
+                <div className="sm:hidden space-y-2.5">
+                  {filteredDateGroupedPayments.map((grp) => (
+                    <div
+                      key={grp.deposit_date}
+                      className="p-3.5 rounded-xl border border-border bg-card shadow-2xs space-y-2.5"
+                    >
+                      <div className="flex items-center justify-between border-b border-border/40 pb-2">
+                        <div className="flex items-center gap-1.5 font-bold text-foreground text-xs">
+                          <Calendar className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span>{formatDate(grp.deposit_date)}</span>
+                          <span className="text-[11px] font-normal text-muted-foreground">({grp.day_name})</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md text-xs">
+                            +{formatBDT(grp.total_amount)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 pt-0.5">
+                        <span className="text-[10px] uppercase font-semibold text-muted-foreground block tracking-wider">
+                          Contributors ({grp.payment_count} {grp.payment_count > 1 ? "payments" : "payment"}):
+                        </span>
+                        {grp.payments.map((p) => (
+                          <div
+                            key={p.id}
+                            className="flex items-center justify-between text-xs py-1.5 px-2 rounded-lg bg-muted/40 border border-border/30"
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-bold shrink-0">
+                                {p.member_name.slice(0, 2).toUpperCase()}
+                              </span>
+                              <div className="truncate">
+                                <span className="font-semibold text-foreground block truncate">{p.member_name}</span>
+                                {p.note && (
+                                  <span className="text-[10px] text-muted-foreground italic block truncate">
+                                    {p.note}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right shrink-0 ml-2">
+                              <span className="font-extrabold text-emerald-600 dark:text-emerald-400 block">
+                                +{formatBDT(p.amount)}
+                              </span>
+                              {p.created_at && (
+                                <span className="text-[9px] text-muted-foreground block">
+                                  {formatDateTime(p.created_at)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="hidden sm:block overflow-x-auto rounded-xl border border-border bg-card">
+                  <table className="w-full text-xs text-left">
+                    <thead className="text-[10px] uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border">
+                      <tr>
+                        <th className="py-3 px-3.5 font-semibold">Payment Date</th>
+                        <th className="py-3 px-3.5 font-semibold">Member</th>
+                        <th className="py-3 px-3.5 font-semibold">Payment Note / Method</th>
+                        <th className="py-3 px-3.5 text-right font-semibold">Amount (BDT)</th>
+                        <th className="py-3 px-3.5 text-right font-semibold">Recorded Time</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {filteredPayments.map((p) => (
+                        <tr key={p.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="py-3 px-3.5 font-medium text-foreground whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <span>{formatDate(p.deposit_date)}</span>
+                            </div>
+                          </td>
+
+                          <td className="py-3 px-3.5 font-semibold text-foreground whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              <span className="h-6 w-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">
+                                {p.member_name.slice(0, 2).toUpperCase()}
+                              </span>
+                              <span>{p.member_name}</span>
+                            </div>
+                          </td>
+
+                          <td className="py-3 px-3.5 text-muted-foreground">
+                            {p.note || "Regular Mess Deposit"}
+                          </td>
+
+                          <td className="py-3 px-3.5 text-right font-extrabold text-emerald-600 dark:text-emerald-400 text-sm whitespace-nowrap">
+                            +{formatBDT(p.amount)}
+                          </td>
+
+                          <td className="py-3 px-3.5 text-right text-muted-foreground text-[11px] whitespace-nowrap">
+                            {p.created_at ? formatDateTime(p.created_at) : "N/A"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Phone Card View */}
+                <div className="sm:hidden space-y-2.5">
+                  {filteredPayments.map((p) => (
+                    <div
+                      key={p.id}
+                      className="p-3 rounded-xl border border-border bg-card shadow-2xs space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 font-medium text-foreground text-xs">
+                          <Calendar className="h-3 w-3 text-muted-foreground" />
+                          <span>{formatDate(p.deposit_date)}</span>
+                        </div>
+                        <span className="font-extrabold text-emerald-600 dark:text-emerald-400 text-sm">
+                          +{formatBDT(p.amount)}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs pt-1 border-t border-border/40">
+                        <span className="font-semibold text-foreground flex items-center gap-1.5">
+                          <span className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-bold">
+                            {p.member_name.slice(0, 2).toUpperCase()}
+                          </span>
+                          <span>{p.member_name}</span>
+                        </span>
+                        <span className="text-[11px] text-muted-foreground italic truncate max-w-[150px]">
+                          {p.note || "Regular Deposit"}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </CardContent>
