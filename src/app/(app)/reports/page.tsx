@@ -70,7 +70,7 @@ export default function ReportsPage() {
 
           setLedgerRows(ledgerData);
           setMemberSummaries(summaryData.member_summaries);
-          setGroupLifetimeDeposits(summaryData.total_group_deposit);
+          setGroupLifetimeDeposits(summaryData.total_group_deposit + (summaryData.total_group_adjustment ?? 0));
           setGroupLifetimeExpenses(summaryData.total_group_expense);
         }
       } catch (err: unknown) {
@@ -137,6 +137,7 @@ export default function ReportsPage() {
       "Total Dinner",
       "Total Meal Cost (BDT)",
       "Total Deposited (BDT)",
+      "Initial Balance (BDT)",
       "Current Balance (BDT)",
     ];
 
@@ -148,6 +149,7 @@ export default function ReportsPage() {
       m.total_dinner,
       m.total_meal_cost,
       m.total_deposited,
+      m.initial_balance ?? 0,
       m.balance,
     ]);
 

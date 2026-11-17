@@ -35,10 +35,10 @@ import { toast } from "sonner";
 export default function DepositsPage() {
   const { broadcastGroupSync } = useRealtime();
   const [members, setMembers] = React.useState<Member[]>(() => {
-    return getCachedItem<Member[]>("members:all") || [];
+    return getCachedItem<Member[]>("members") || [];
   });
   const [deposits, setDeposits] = React.useState<Deposit[]>(() => {
-    return getCachedItem<Deposit[]>("deposits:all") || [];
+    return getCachedItem<Deposit[]>("deposits") || [];
   });
   const [isLoading, setIsLoading] = React.useState(!members.length && !deposits.length);
 
@@ -49,7 +49,7 @@ export default function DepositsPage() {
 
   // Form states for new deposit
   const [selectedMemberId, setSelectedMemberId] = React.useState(() => {
-    const cachedMembers = getCachedItem<Member[]>("members:all");
+    const cachedMembers = getCachedItem<Member[]>("members");
     return cachedMembers && cachedMembers.length > 0 ? cachedMembers[0].id : "";
   });
   const [amount, setAmount] = React.useState("");

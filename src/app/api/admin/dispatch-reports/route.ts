@@ -192,12 +192,13 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Missing required parameter 'memberId'." }, { status: 400 });
       }
 
-      // Fetch member, settings, meals, and deposits in parallel directly from database
-      const [memberRes, settingsRes, mealsRes, depositsRes] = await Promise.all([
+      // Fetch member, settings, meals, deposits, and adjustments in parallel directly from database
+      const [memberRes, settingsRes, mealsRes, depositsRes, adjustmentsRes] = await Promise.all([
         supabase.from("members").select("*").eq("id", memberId).single(),
         supabase.from("settings").select("*").eq("id", 1).single(),
         supabase.from("meal_entries").select("*").eq("member_id", memberId).order("meal_date", { ascending: true }),
         supabase.from("deposits").select("*").eq("member_id", memberId).order("deposit_date", { ascending: true }),
+        supabase.from("adjustments").select("*").eq("member_id", memberId).order("adjustment_date", { ascending: true }),
       ]);
 
       if (memberRes.error || !memberRes.data) {
@@ -217,6 +218,7 @@ export async function POST(req: Request) {
 
       const meals = mealsRes.data || [];
       const deposits = depositsRes.data || [];
+      const adjustments = adjustmentsRes.data || [];
 
       // Determine date range and labels based on periodType
       let startDate = rawStartDate || "";
@@ -237,6 +239,7 @@ export async function POST(req: Request) {
         const allDates = [
           ...meals.map((m) => m.meal_date),
           ...deposits.map((d) => d.deposit_date),
+          ...adjustments.map((a) => a.adjustment_date),
         ].sort();
         startDate = allDates[0] || `${currentYear}-01-01`;
         endDate = today;
@@ -320,21 +323,31 @@ export async function POST(req: Request) {
       const totalPeriodMeals = dailyBreakdown.reduce((acc, r) => acc + r.totalMeals, 0);
       const totalPeriodCost = dailyBreakdown.reduce((acc, r) => acc + r.cost, 0);
 
-      // Period deposits
+      // Period deposits and adjustments
       const totalPeriodDeposits = deposits
-        .filter((d) => d.deposit_date >= startDate && d.deposit_date <= endDate)
+        .filter((d) => (!startDate || d.deposit_date >= startDate) && (!endDate || d.deposit_date <= endDate))
         .reduce((acc, d) => acc + (Number(d.amount) || 0), 0);
 
-      // Lifetime financials (up to endDate)
+      const totalPeriodAdjustments = adjustments
+        .filter((a) => (!startDate || a.adjustment_date >= startDate) && (!endDate || a.adjustment_date <= endDate))
+        .reduce((acc, a) => acc + (Number(a.amount) || 0), 0);
+
+      // Lifetime financials (up to endDate) including initial balance adjustments
       const lifetimeDeposits = deposits
         .filter((d) => !endDate || d.deposit_date <= endDate)
         .reduce((acc, d) => acc + (Number(d.amount) || 0), 0);
+
+      const lifetimeAdjustments = adjustments
+        .filter((a) => !endDate || a.adjustment_date <= endDate)
+        .reduce((acc, a) => acc + (Number(a.amount) || 0), 0);
 
       const lifetimeCost = meals
         .filter((m) => (!endDate || m.meal_date <= endDate) && m.quantity > 0)
         .reduce((acc, m) => acc + (Number(m.quantity) || 0) * (Number(m.unit_price) || 0), 0);
 
-      const currentBalance = lifetimeDeposits - lifetimeCost;
+      // Balance strictly includes initial / previous balance: deposits + adjustments - cost
+      const currentBalance = lifetimeDeposits + lifetimeAdjustments - lifetimeCost;
+      const initialBalance = lifetimeAdjustments;
 
       // Subject line
       if (resolvedType === "all") {
@@ -347,7 +360,7 @@ export async function POST(req: Request) {
         subject = `[${settings.app_name || "Mill Manager"}] মেস হিসাব বিবরণী: ${formatReadableDate(startDate)} - ${formatReadableDate(endDate)} (${member.name})`;
       }
 
-      // Generate HTML
+      // Generate HTML with initial / previous balance support
       const htmlBody = renderMemberStatementHtml({
         periodType: resolvedType,
         periodTitle,
@@ -360,6 +373,7 @@ export async function POST(req: Request) {
         totalPeriodMeals,
         totalPeriodCost,
         totalPeriodDeposits,
+        initialBalance,
         lifetimeDeposits,
         lifetimeCost,
         currentBalance,
@@ -381,6 +395,7 @@ export async function POST(req: Request) {
             totalPeriodMeals,
             totalPeriodCost,
             totalPeriodDeposits,
+            initialBalance,
             currentBalance,
             htmlBody,
           },
@@ -420,6 +435,7 @@ export async function POST(req: Request) {
           totalMeals: totalPeriodMeals,
           totalCost: totalPeriodCost,
           totalDeposits: totalPeriodDeposits,
+          initialBalance,
           currentBalance,
           gas_response: gasData,
           sent_at: new Date().toISOString(),
@@ -442,6 +458,7 @@ export async function POST(req: Request) {
           totalPeriodMeals,
           totalPeriodCost,
           totalPeriodDeposits,
+          initialBalance,
           currentBalance,
         },
       });

@@ -47,10 +47,10 @@ export default function DailyMealEntryPage() {
   const { broadcastGroupSync } = useRealtime();
   const [selectedDate, setSelectedDate] = React.useState<string>(getTodayInDhaka());
   const [members, setMembers] = React.useState<Member[]>(() => {
-    return getCachedItem<Member[]>("members:all") || [];
+    return getCachedItem<Member[]>("members") || [];
   });
   const [settings, setSettings] = React.useState<Settings>(() => {
-    return getCachedItem<Settings>("settings:global") || DEFAULT_SETTINGS;
+    return getCachedItem<Settings>("settings") || DEFAULT_SETTINGS;
   });
   const [isLoading, setIsLoading] = React.useState(!members.length);
   const [isSaving, setIsSaving] = React.useState(false);

@@ -329,7 +329,13 @@ export function MemberDashboard({ initialData }: MemberDashboardProps) {
               {formatBDT(summary.total_deposited)}
             </div>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Verified by mill administrator
+              {summary.initial_balance !== undefined && summary.initial_balance !== 0 ? (
+                <span>
+                  Initial Bal: <strong className={summary.initial_balance >= 0 ? "text-emerald-600" : "text-rose-500"}>{formatBDT(summary.initial_balance)}</strong>
+                </span>
+              ) : (
+                "Verified by mill administrator"
+              )}
             </p>
           </CardContent>
         </Card>
@@ -340,7 +346,10 @@ export function MemberDashboard({ initialData }: MemberDashboardProps) {
         <div className="flex items-center gap-2.5">
           <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
           <span className="text-muted-foreground">
-            <strong>Reconciliation formula:</strong> Total Deposited ({formatBDT(summary.total_deposited)}) - Meal Expense ({formatBDT(summary.total_meal_cost)}) = Net Balance ({formatBDT(summary.balance)}).
+            <strong>Reconciliation formula:</strong>{" "}
+            {summary.initial_balance !== undefined && summary.initial_balance !== 0
+              ? `Initial Balance (${formatBDT(summary.initial_balance)}) + Total Deposited (${formatBDT(summary.total_deposited)}) - Meal Expense (${formatBDT(summary.total_meal_cost)}) = Net Balance (${formatBDT(summary.balance)}).`
+              : `Total Deposited (${formatBDT(summary.total_deposited)}) - Meal Expense (${formatBDT(summary.total_meal_cost)}) = Net Balance (${formatBDT(summary.balance)}).`}
           </span>
         </div>
       </div>

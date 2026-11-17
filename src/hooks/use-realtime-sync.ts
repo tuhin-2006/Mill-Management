@@ -14,15 +14,25 @@ export function useRealtimeSync(
 ) {
   const { subscribeToEntity } = useRealtime();
   const onSyncRef = React.useRef(onSync);
-  onSyncRef.current = onSync;
+  const entitiesRef = React.useRef(entities);
+
+  React.useEffect(() => {
+    onSyncRef.current = onSync;
+    entitiesRef.current = entities;
+  });
+
+  // Stable serialized key for entities array to avoid re-subscribing on every render
+  const entitiesKey = React.useMemo(() => {
+    return [...entities].sort().join(",");
+  }, [entities]);
 
   React.useEffect(() => {
     if (!enabled) return;
 
-    return subscribeToEntity(entities, () => {
+    return subscribeToEntity(entitiesRef.current, () => {
       if (onSyncRef.current) {
         void onSyncRef.current();
       }
     });
-  }, [entities, enabled, subscribeToEntity]);
+  }, [entitiesKey, enabled, subscribeToEntity]);
 }

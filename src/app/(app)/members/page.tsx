@@ -26,6 +26,7 @@ import {
   Sparkles,
   RefreshCw,
   ExternalLink,
+  Loader2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -36,10 +37,12 @@ import {
   getGroupSummary,
   getMemberLedger,
   getCachedItem,
+  getMemberInitialBalance,
+  setMemberInitialBalance,
 } from "@/lib/services";
 import { useRealtimeSync } from "@/hooks/use-realtime-sync";
 import { formatBDT, formatDate, getTodayInDhaka } from "@/lib/date";
-import { Member, MemberSummary, UserRole } from "@/types";
+import { Member, MemberSummary, GroupSummary, UserRole } from "@/types";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -85,9 +88,19 @@ const MONTH_NAMES_BN = [
 
 export default function MembersPage() {
   const [members, setMembers] = React.useState<Member[]>(() => {
-    return getCachedItem<Member[]>("members:all") || [];
+    return getCachedItem<Member[]>("members") || [];
   });
-  const [summaries, setSummaries] = React.useState<Record<string, MemberSummary>>({});
+  const [summaries, setSummaries] = React.useState<Record<string, MemberSummary>>(() => {
+    const cachedGroup = getCachedItem<GroupSummary>("group_summary");
+    if (cachedGroup?.member_summaries) {
+      const map: Record<string, MemberSummary> = {};
+      for (const s of cachedGroup.member_summaries) {
+        map[s.id] = s;
+      }
+      return map;
+    }
+    return {};
+  });
   const [credentialsMap, setCredentialsMap] = React.useState<Record<string, MemberCredentials>>({});
   const [isLoading, setIsLoading] = React.useState(!members.length);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
@@ -103,6 +116,7 @@ export default function MembersPage() {
   const [isAddOpen, setIsAddOpen] = React.useState(false);
   const [newMemberName, setNewMemberName] = React.useState("");
   const [newMemberEmail, setNewMemberEmail] = React.useState("");
+  const [newMemberInitialBalance, setNewMemberInitialBalance] = React.useState("0");
   const [newMemberUsername, setNewMemberUsername] = React.useState("");
   const [newMemberPassword, setNewMemberPassword] = React.useState("Password123!");
   const [createAccountWithMember, setCreateAccountWithMember] = React.useState(true);
@@ -112,6 +126,7 @@ export default function MembersPage() {
   const [editMember, setEditMember] = React.useState<Member | null>(null);
   const [editName, setEditName] = React.useState("");
   const [editEmail, setEditEmail] = React.useState("");
+  const [editInitialBalance, setEditInitialBalance] = React.useState("0");
   const [isEditing, setIsEditing] = React.useState(false);
 
   // Modal: Delete Member
@@ -147,33 +162,36 @@ export default function MembersPage() {
   const [customEndDate, setCustomEndDate] = React.useState("");
   const [isSendingStatement, setIsSendingStatement] = React.useState(false);
 
-  // Load all data (Members, Financial Summaries, Credentials) in parallel
+  // Load members and financial summaries immediately; credentials asynchronously in background
   const loadData = React.useCallback(async () => {
     try {
       const supabase = createClient();
-      const [membersData, groupSum, credsRes] = await Promise.all([
+      const [membersData, groupSum] = await Promise.all([
         getMembers(supabase),
         getGroupSummary(supabase),
-        fetch("/api/admin/user-credentials").catch(() => null),
       ]);
 
-      setMembers(membersData);
-
-      const sumMap: Record<string, MemberSummary> = {};
-      for (const s of groupSum.member_summaries) {
-        sumMap[s.id] = s;
+      if (membersData && membersData.length > 0) {
+        setMembers(membersData);
+      } else if (groupSum?.member_summaries?.length) {
+        // Fallback: use group summary members if getMembers returned empty
+        const fallbackMembers: Member[] = groupSum.member_summaries.map((s) => ({
+          id: s.id,
+          name: s.name,
+          email: null,
+          status: s.status,
+          created_at: "",
+          updated_at: "",
+        }));
+        setMembers(fallbackMembers);
       }
-      setSummaries(sumMap);
 
-      if (credsRes && credsRes.ok) {
-        try {
-          const credsJson = await credsRes.json();
-          if (credsJson.credentials) {
-            setCredentialsMap(credsJson.credentials);
-          }
-        } catch (e) {
-          console.warn("Could not parse user credentials:", e);
+      if (groupSum?.member_summaries) {
+        const sumMap: Record<string, MemberSummary> = {};
+        for (const s of groupSum.member_summaries) {
+          sumMap[s.id] = s;
         }
+        setSummaries(sumMap);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";
@@ -185,6 +203,19 @@ export default function MembersPage() {
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
+    }
+
+    // Background fetch credentials without blocking member table rendering
+    try {
+      const credsRes = await fetch("/api/admin/user-credentials");
+      if (credsRes && credsRes.ok) {
+        const credsJson = await credsRes.json();
+        if (credsJson.credentials) {
+          setCredentialsMap(credsJson.credentials);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not load user credentials:", e);
     }
   }, []);
 
@@ -350,6 +381,12 @@ export default function MembersPage() {
       const supabase = createClient();
       const created = await addMember(supabase, newMemberName.trim(), newMemberEmail.trim() || null);
 
+      // Save initial balance if provided
+      const initAmount = parseFloat(newMemberInitialBalance);
+      if (!isNaN(initAmount) && initAmount !== 0) {
+        await setMemberInitialBalance(supabase, created.id, initAmount);
+      }
+
       if (createAccountWithMember && newMemberPassword.trim().length >= 6) {
         const username =
           newMemberUsername.trim() ||
@@ -377,6 +414,7 @@ export default function MembersPage() {
 
       setNewMemberName("");
       setNewMemberEmail("");
+      setNewMemberInitialBalance("0");
       setNewMemberUsername("");
       setNewMemberPassword("Password123!");
       setIsAddOpen(false);
@@ -388,7 +426,7 @@ export default function MembersPage() {
     }
   };
 
-  // Edit Member Name & Email
+  // Edit Member Name & Email & Initial Balance
   const handleEditMember = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editMember || !editName.trim()) return;
@@ -400,7 +438,13 @@ export default function MembersPage() {
         name: editName.trim(),
         email: editEmail.trim() || null,
       });
-      toast.success(`Member updated to "${editName}".`);
+
+      const parsedInit = parseFloat(editInitialBalance);
+      if (!isNaN(parsedInit)) {
+        await setMemberInitialBalance(supabase, editMember.id, parsedInit);
+      }
+
+      toast.success(`Member "${editName}" updated successfully.`);
       setEditMember(null);
       loadData();
     } catch (err: unknown) {
@@ -552,11 +596,17 @@ export default function MembersPage() {
               Total Members
             </span>
             <div className="text-xl sm:text-2xl font-bold text-foreground mt-1 flex items-center justify-between">
-              <span>{members.length}</span>
+              <span>{isLoading && members.length === 0 ? "..." : members.length}</span>
               <Users className="h-5 w-5 text-primary/70" />
             </div>
             <p className="text-[11px] text-muted-foreground mt-1">
-              <span className="text-emerald-600 font-semibold">{totalActive} Active</span> &bull; {members.length - totalActive} Inactive
+              {isLoading && members.length === 0 ? (
+                <span className="text-muted-foreground">লোড হচ্ছে...</span>
+              ) : (
+                <>
+                  <span className="text-emerald-600 font-semibold">{totalActive} Active</span> &bull; {members.length - totalActive} Inactive
+                </>
+              )}
             </p>
           </CardContent>
         </Card>
@@ -568,11 +618,13 @@ export default function MembersPage() {
               Web Portal Logins
             </span>
             <div className="text-xl sm:text-2xl font-bold text-foreground mt-1 flex items-center justify-between">
-              <span>{totalWithLogin} / {members.length}</span>
+              <span>{isLoading && members.length === 0 ? "..." : `${totalWithLogin} / ${members.length}`}</span>
               <KeyRound className="h-5 w-5 text-amber-500/80" />
             </div>
             <p className="text-[11px] text-muted-foreground mt-1">
-              {members.length - totalWithLogin > 0 ? (
+              {isLoading && members.length === 0 ? (
+                <span className="text-muted-foreground">লোড হচ্ছে...</span>
+              ) : members.length - totalWithLogin > 0 ? (
                 <span className="text-amber-600 font-semibold">
                   {members.length - totalWithLogin} needs login setup
                 </span>
@@ -590,7 +642,7 @@ export default function MembersPage() {
               Statement Recipients
             </span>
             <div className="text-xl sm:text-2xl font-bold text-foreground mt-1 flex items-center justify-between">
-              <span>{totalWithEmail} Members</span>
+              <span>{isLoading && members.length === 0 ? "..." : `${totalWithEmail} Members`}</span>
               <Mail className="h-5 w-5 text-blue-500/80" />
             </div>
             <p className="text-[11px] text-muted-foreground mt-1">
@@ -606,7 +658,7 @@ export default function MembersPage() {
               Total Mess Balance
             </span>
             <div className={`text-xl sm:text-2xl font-bold mt-1 ${totalBalance >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
-              {formatBDT(totalBalance)}
+              {isLoading && members.length === 0 ? "..." : formatBDT(totalBalance)}
             </div>
             <p className="text-[11px] text-muted-foreground mt-1">
               {totalBalance >= 0 ? "Net Surplus in Fund" : "Net Deficit in Fund"}
@@ -713,7 +765,12 @@ export default function MembersPage() {
           </span>
         </CardHeader>
         <CardContent className="p-0">
-          {filteredMembers.length === 0 ? (
+          {isLoading && members.length === 0 ? (
+            <div className="py-16 flex flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <span>সদস্য তথ্য লোড হচ্ছে...</span>
+            </div>
+          ) : filteredMembers.length === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
               {members.length === 0 ? "No members found. Click '+ Add Member' to create one." : "No members match your search criteria."}
             </div>
@@ -809,6 +866,7 @@ export default function MembersPage() {
                                 setEditMember(member);
                                 setEditName(member.name);
                                 setEditEmail("");
+                                setEditInitialBalance(String(summaries[member.id]?.initial_balance ?? 0));
                               }}
                               className="text-[11px] text-blue-600 hover:underline flex items-center gap-1"
                             >
@@ -832,6 +890,16 @@ export default function MembersPage() {
                         {/* Deposited */}
                         <td className="py-3.5 px-3 text-right font-mono text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
                           {formatBDT(sum.total_deposited)}
+                          {sum.initial_balance !== undefined && sum.initial_balance !== 0 && (
+                            <span
+                              className={`block text-[10px] font-normal ${
+                                sum.initial_balance >= 0 ? "text-emerald-600" : "text-rose-500"
+                              }`}
+                              title="Initial / Previous Balance carried forward"
+                            >
+                              Init: {formatBDT(sum.initial_balance)}
+                            </span>
+                          )}
                         </td>
 
                         {/* Net Balance */}
@@ -872,7 +940,7 @@ export default function MembersPage() {
                               <Eye className="h-3.5 w-3.5" />
                             </Button>
 
-                            {/* Edit Name & Email */}
+                            {/* Edit Name, Email & Initial Balance */}
                             <Button
                               variant="outline"
                               size="icon"
@@ -880,6 +948,7 @@ export default function MembersPage() {
                                 setEditMember(member);
                                 setEditName(member.name);
                                 setEditEmail(member.email || "");
+                                setEditInitialBalance(String(summaries[member.id]?.initial_balance ?? 0));
                               }}
                               className="h-8 w-8 text-muted-foreground hover:text-foreground transition-colors border-border/80"
                               title="Edit Member"
@@ -926,18 +995,28 @@ export default function MembersPage() {
 
       {/* 5. MOBILE VIEW MEMBER CARDS */}
       <div className="grid grid-cols-1 gap-3 md:hidden">
-        {filteredMembers.map((member) => {
-          const sum = summaries[member.id] || {
-            total_meals: 0,
-            total_meal_cost: 0,
-            total_deposited: 0,
-            balance: 0,
-          };
-          const creds = credentialsMap[member.id];
-          const isAdvance = sum.balance >= 0;
-          const avatarColor = getAvatarColor(member.name);
+        {isLoading && members.length === 0 ? (
+          <div className="py-12 flex flex-col items-center justify-center gap-2 text-sm text-muted-foreground bg-card rounded-xl border border-border/80">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            <span>সদস্য তথ্য লোড হচ্ছে...</span>
+          </div>
+        ) : filteredMembers.length === 0 ? (
+          <div className="py-12 text-center text-sm text-muted-foreground bg-card rounded-xl border border-border/80 p-4">
+            {members.length === 0 ? "No members found. Click '+ Add Member' to create one." : "No members match your search criteria."}
+          </div>
+        ) : (
+          filteredMembers.map((member) => {
+            const sum = summaries[member.id] || {
+              total_meals: 0,
+              total_meal_cost: 0,
+              total_deposited: 0,
+              balance: 0,
+            };
+            const creds = credentialsMap[member.id];
+            const isAdvance = sum.balance >= 0;
+            const avatarColor = getAvatarColor(member.name);
 
-          return (
+            return (
             <Card key={member.id} className="border-border/80 shadow-2xs">
               <CardContent className="p-4 space-y-3">
                 {/* Header Row */}
@@ -995,6 +1074,11 @@ export default function MembersPage() {
                   <div>
                     <span className="text-[10px] text-muted-foreground block font-sans">Deposited</span>
                     <span className="font-semibold text-emerald-600">{formatBDT(sum.total_deposited)}</span>
+                    {sum.initial_balance !== undefined && sum.initial_balance !== 0 && (
+                      <span className={`block text-[9px] ${sum.initial_balance >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
+                        Init: {formatBDT(sum.initial_balance)}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -1025,6 +1109,7 @@ export default function MembersPage() {
                       setEditMember(member);
                       setEditName(member.name);
                       setEditEmail(member.email || "");
+                      setEditInitialBalance(String(summaries[member.id]?.initial_balance ?? 0));
                     }}
                     className="h-8 w-8 p-0"
                   >
@@ -1034,7 +1119,8 @@ export default function MembersPage() {
               </CardContent>
             </Card>
           );
-        })}
+        })
+      )}
       </div>
 
       {/* =========================================================================
@@ -1499,6 +1585,24 @@ export default function MembersPage() {
                   />
                 </div>
 
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="m-init" className="text-xs font-semibold">
+                      Initial / Previous Balance (পূর্বের ব্যালেন্স) (৳)
+                    </Label>
+                    <span className="text-[10px] text-muted-foreground">বকেয়া হলে মাইনাস (যেমন: -390), জমা থাকলে প্লাস (যেমন: 260)</span>
+                  </div>
+                  <Input
+                    id="m-init"
+                    type="number"
+                    step="0.01"
+                    placeholder="0"
+                    value={newMemberInitialBalance}
+                    onChange={(e) => setNewMemberInitialBalance(e.target.value)}
+                    className="h-9 text-xs font-mono"
+                  />
+                </div>
+
                 {/* Instant Login Credentials Checkbox */}
                 <div className="p-3 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
                   <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-foreground">
@@ -1604,6 +1708,24 @@ export default function MembersPage() {
                     onChange={(e) => setEditEmail(e.target.value)}
                     placeholder="email@example.com"
                     className="h-9 text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="e-init" className="text-xs font-semibold">
+                      Initial / Previous Balance (পূর্বের ব্যালেন্স) (৳)
+                    </Label>
+                    <span className="text-[10px] text-muted-foreground">বকেয়া হলে মাইনাস (যেমন: -390), জমা থাকলে প্লাস (যেমন: 260)</span>
+                  </div>
+                  <Input
+                    id="e-init"
+                    type="number"
+                    step="0.01"
+                    value={editInitialBalance}
+                    onChange={(e) => setEditInitialBalance(e.target.value)}
+                    placeholder="0"
+                    className="h-9 text-xs font-mono"
                   />
                 </div>
 

@@ -21,6 +21,7 @@ export interface StatementData {
   totalPeriodMeals: number;
   totalPeriodCost: number;
   totalPeriodDeposits: number;
+  initialBalance?: number;
   lifetimeDeposits: number;
   lifetimeCost: number;
   currentBalance: number;
@@ -192,6 +193,7 @@ export function renderMemberStatementHtml(data: StatementData): string {
                   </td>
                   <td align="right" style="vertical-align: middle;">
                     <div style="font-size: 11px; color: #64748b; line-height: 1.5; text-align: right;">
+                      ${data.initialBalance !== undefined && data.initialBalance !== 0 ? `আগের / প্রারম্ভিক ব্যালেন্স: <strong style="color: ${data.initialBalance >= 0 ? "#059669" : "#e11d48"};">${formatBDT(data.initialBalance)}</strong><br>` : ""}
                       আজীবনের মোট জমা: <strong>${formatBDT(data.lifetimeDeposits)}</strong><br>
                       আজীবনের মোট মিল খরচ: <strong>${formatBDT(data.lifetimeCost)}</strong>
                     </div>
@@ -206,19 +208,27 @@ export function renderMemberStatementHtml(data: StatementData): string {
             <td style="padding: 8px 24px 16px 24px;">
               <table role="presentation" width="100%" cellspacing="8" cellpadding="0">
                 <tr>
-                  <td width="33%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
+                  ${data.initialBalance !== undefined && data.initialBalance !== 0 ? `
+                  <td width="25%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
+                    <span style="font-size: 11px; color: #64748b; font-weight: 500;">আগের ব্যালেন্স</span>
+                    <div style="font-size: 16px; font-weight: 700; color: ${data.initialBalance >= 0 ? "#059669" : "#e11d48"}; margin-top: 4px;">
+                      ${formatBDT(data.initialBalance)}
+                    </div>
+                  </td>
+                  ` : ""}
+                  <td width="${data.initialBalance !== undefined && data.initialBalance !== 0 ? "25%" : "33%"}" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
                     <span style="font-size: 11px; color: #64748b; font-weight: 500;">${kpiMealsLabel}</span>
                     <div style="font-size: 18px; font-weight: 700; color: #0f172a; margin-top: 4px;">
                       ${data.totalPeriodMeals}
                     </div>
                   </td>
-                  <td width="33%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
+                  <td width="${data.initialBalance !== undefined && data.initialBalance !== 0 ? "25%" : "33%"}" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
                     <span style="font-size: 11px; color: #64748b; font-weight: 500;">${kpiCostLabel}</span>
                     <div style="font-size: 18px; font-weight: 700; color: #0f172a; margin-top: 4px;">
                       ${formatBDT(data.totalPeriodCost)}
                     </div>
                   </td>
-                  <td width="33%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
+                  <td width="${data.initialBalance !== undefined && data.initialBalance !== 0 ? "25%" : "33%"}" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
                     <span style="font-size: 11px; color: #64748b; font-weight: 500;">${kpiDepositLabel}</span>
                     <div style="font-size: 18px; font-weight: 700; color: #059669; margin-top: 4px;">
                       ${formatBDT(data.totalPeriodDeposits)}
@@ -267,7 +277,10 @@ export function renderMemberStatementHtml(data: StatementData): string {
                 <tr>
                   <td style="font-size: 12px; color: #64748b; line-height: 1.6;">
                     <strong>হিসাব সমন্বয় সূত্র (Reconciliation Formula):</strong><br>
-                    সর্বমোট জমা (৳${data.lifetimeDeposits}) - সর্বমোট মিল খরচ (৳${data.lifetimeCost}) = বর্তমান ব্যালেন্স (<span style="color: ${balanceColor}; font-weight: 700;">${formatBDT(data.currentBalance)}</span>).
+                    ${data.initialBalance !== undefined && data.initialBalance !== 0
+                      ? `আগের ব্যালেন্স (${formatBDT(data.initialBalance)}) + সর্বমোট জমা (${formatBDT(data.lifetimeDeposits)}) - সর্বমোট মিল খরচ (${formatBDT(data.lifetimeCost)}) = বর্তমান ব্যালেন্স (<span style="color: ${balanceColor}; font-weight: 700;">${formatBDT(data.currentBalance)}</span>).`
+                      : `সর্বমোট জমা (${formatBDT(data.lifetimeDeposits)}) - সর্বমোট মিল খরচ (${formatBDT(data.lifetimeCost)}) = বর্তমান ব্যালেন্স (<span style="color: ${balanceColor}; font-weight: 700;">${formatBDT(data.currentBalance)}</span>).`
+                    }
                   </td>
                 </tr>
               </table>

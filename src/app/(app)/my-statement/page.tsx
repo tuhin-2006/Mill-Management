@@ -231,6 +231,14 @@ export default function MyStatementPage() {
             ) : summary ? (
               <>
                 <div className="space-y-2 text-sm">
+                  {summary.initial_balance !== undefined && summary.initial_balance !== 0 && (
+                    <div className="flex justify-between py-1.5 border-b border-border">
+                      <span className="text-muted-foreground">Initial / Previous Balance:</span>
+                      <span className={`font-semibold ${summary.initial_balance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-500"}`}>
+                        {formatBDT(summary.initial_balance)}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between py-1.5 border-b border-border">
                     <span className="text-muted-foreground">Lifetime Deposited:</span>
                     <span className="font-semibold text-emerald-600 dark:text-emerald-400">
@@ -258,8 +266,13 @@ export default function MyStatementPage() {
                 <div className="p-3 rounded-lg bg-card border border-border text-xs text-muted-foreground leading-relaxed flex items-start gap-2">
                   <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
                   <div>
-                    <strong>Reconciliation Guarantee:</strong> Your balance is derived mathematically as
-                    <code> Deposited - Meal Cost = Balance</code>. No balance is ever stored independently, eliminating accounting drift.
+                    <strong>Reconciliation Guarantee:</strong> Your balance is derived mathematically as{" "}
+                    <code>
+                      {summary.initial_balance !== undefined && summary.initial_balance !== 0
+                        ? "Initial Balance + Deposited - Meal Cost = Balance"
+                        : "Deposited - Meal Cost = Balance"}
+                    </code>
+                    . No balance is ever stored independently, eliminating accounting drift.
                   </div>
                 </div>
               </>

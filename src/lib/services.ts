@@ -49,9 +49,10 @@ export function onCacheInvalidated(listener: CacheInvalidationListener): () => v
 }
 
 /**
- * Invalidate in-memory cache and notify all active query subscribers
+ * Silently clear keys from the in-memory cache without notifying invalidation listeners.
+ * Used by real-time notification handlers to prevent infinite recursion loops.
  */
-export function invalidateCache(prefix?: string): void {
+export function clearCacheSilently(prefix?: string): void {
   if (!prefix) {
     memoryCache.clear();
   } else {
@@ -61,6 +62,13 @@ export function invalidateCache(prefix?: string): void {
       }
     }
   }
+}
+
+/**
+ * Invalidate in-memory cache and notify all active query subscribers
+ */
+export function invalidateCache(prefix?: string): void {
+  clearCacheSilently(prefix);
 
   // Notify listeners immediately
   invalidationListeners.forEach((listener) => {
@@ -291,6 +299,76 @@ export async function updateMember(
   }
 
   return data;
+}
+
+/**
+ * 5.1 Get Initial / Previous Balance for a Member
+ */
+export async function getMemberInitialBalance(
+  supabase: SupabaseClient,
+  memberId: string
+): Promise<number> {
+  const { data, error } = await supabase
+    .from("adjustments")
+    .select("amount")
+    .eq("member_id", memberId)
+    .ilike("note", "%initial balance%");
+
+  if (error || !data) return 0;
+  return data.reduce((acc, a) => acc + (Number(a.amount) || 0), 0);
+}
+
+/**
+ * 5.2 Set or Update Initial / Previous Balance for a Member
+ */
+export async function setMemberInitialBalance(
+  supabase: SupabaseClient,
+  memberId: string,
+  amount: number,
+  date?: string,
+  note?: string
+): Promise<Adjustment | null> {
+  invalidateCache();
+  const targetDate = date || "2026-11-15";
+  const targetNote = note || "Initial Balance (15 Nov 2026)";
+
+  const { data: existing } = await supabase
+    .from("adjustments")
+    .select("id")
+    .eq("member_id", memberId)
+    .ilike("note", "%initial balance%")
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (existing && existing.length > 0) {
+    const { data: updated, error: uErr } = await supabase
+      .from("adjustments")
+      .update({
+        amount,
+        adjustment_date: targetDate,
+        note: targetNote,
+      })
+      .eq("id", existing[0].id)
+      .select()
+      .single();
+
+    if (uErr) throw new Error(`Failed to update initial balance: ${uErr.message}`);
+    return updated;
+  } else {
+    const { data: inserted, error: iErr } = await supabase
+      .from("adjustments")
+      .insert({
+        member_id: memberId,
+        amount,
+        adjustment_date: targetDate,
+        note: targetNote,
+      })
+      .select()
+      .single();
+
+    if (iErr) throw new Error(`Failed to create initial balance: ${iErr.message}`);
+    return inserted;
+  }
 }
 
 /**
@@ -672,6 +750,7 @@ export async function getDashboardData(
       total_dinner: totalDinner,
       total_meal_cost: totalCost,
       total_deposited: totalDeposited,
+      initial_balance: totalAdjusted,
       balance,
     };
   });
@@ -708,6 +787,7 @@ export async function getDashboardData(
     today_lunch_count: todayLunchCount,
     today_dinner_count: todayDinnerCount,
     total_group_deposit: totalGroupDeposit,
+    total_group_adjustment: totalGroupAdjustment,
     total_group_expense: totalGroupExpense,
     remaining_group_balance: remainingGroupBalance,
     active_members_count: activeMembersCount,
@@ -798,6 +878,7 @@ export async function getGroupSummary(
       total_dinner: totalDinner,
       total_meal_cost: totalCost,
       total_deposited: totalDeposited,
+      initial_balance: totalAdjusted,
       balance,
     };
   });
@@ -835,6 +916,7 @@ export async function getGroupSummary(
     today_lunch_count: todayLunchCount,
     today_dinner_count: todayDinnerCount,
     total_group_deposit: totalGroupDeposit,
+    total_group_adjustment: totalGroupAdjustment,
     total_group_expense: totalGroupExpense,
     remaining_group_balance: remainingGroupBalance,
     active_members_count: activeMembersCount,
@@ -930,6 +1012,7 @@ export async function getMemberLedger(
     total_meals: number;
     total_cost: number;
     total_deposited: number;
+    initial_balance?: number;
     balance: number;
   };
 }> {
@@ -1006,14 +1089,29 @@ export async function getMemberLedger(
   const totalAdjusted = adjustments.reduce((acc, a) => acc + a.amount, 0);
   const balance = totalDeposited + totalAdjusted - totalCost;
 
+  // Combine deposits and adjustments so member details modal and ledger show full history
+  const allFinancialRecords = [
+    ...deposits,
+    ...adjustments.map((a) => ({
+      id: a.id,
+      member_id: a.member_id || member?.id || "",
+      amount: a.amount,
+      deposit_date: a.adjustment_date,
+      note: a.note,
+      created_at: a.created_at,
+      updated_at: a.created_at,
+    })),
+  ].sort((a, b) => b.deposit_date.localeCompare(a.deposit_date));
+
   return {
     member,
     dailyMeals,
-    deposits,
+    deposits: allFinancialRecords,
     summary: {
       total_meals: totalMeals,
       total_cost: totalCost,
       total_deposited: totalDeposited,
+      initial_balance: totalAdjusted,
       balance,
     },
   };
@@ -1637,8 +1735,10 @@ export async function getMemberPersonalStatement(
       total_lunch: totalLunch,
       total_dinner: totalDinner,
       total_meal_cost: periodCost,
-      total_deposited: totalLifetimeDeposited + totalLifetimeAdjusted,
-      period_deposited: periodDeposited + periodAdjusted,
+      total_deposited: totalLifetimeDeposited,
+      initial_balance: totalLifetimeAdjusted,
+      period_deposited: periodDeposited,
+      period_adjusted: periodAdjusted,
       balance: currentBalance,
     },
     dailyMeals,

@@ -3,7 +3,7 @@
 import * as React from "react";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { invalidateCache, onCacheInvalidated } from "@/lib/services";
+import { clearCacheSilently, onCacheInvalidated } from "@/lib/services";
 import { UserRole } from "@/types";
 
 export type RealtimeEntity = "meals" | "deposits" | "members" | "settings" | "aggregate" | "all";
@@ -59,26 +59,28 @@ export function RealtimeProvider({
     const timer = setTimeout(() => {
       debounceTimersRef.current.delete(entity);
 
-      // Invalidate in-memory caches relevant to this entity
+      // Silently clear in-memory caches relevant to this entity without re-triggering cache listeners
       if (entity === "meals") {
-        invalidateCache("meal");
-        invalidateCache("period_ledger");
-        invalidateCache("dashboard");
-        invalidateCache("group_aggregate");
+        clearCacheSilently("meal");
+        clearCacheSilently("period_ledger");
+        clearCacheSilently("dashboard");
+        clearCacheSilently("group_aggregate");
       } else if (entity === "deposits") {
-        invalidateCache("deposit");
-        invalidateCache("period_ledger");
-        invalidateCache("dashboard");
-        invalidateCache("group_aggregate");
+        clearCacheSilently("deposit");
+        clearCacheSilently("period_ledger");
+        clearCacheSilently("dashboard");
+        clearCacheSilently("group_aggregate");
       } else if (entity === "members") {
-        invalidateCache("member");
-        invalidateCache("dashboard");
+        clearCacheSilently("members");
+        clearCacheSilently("member");
+        clearCacheSilently("dashboard");
+        clearCacheSilently("group_summary");
       } else if (entity === "settings") {
-        invalidateCache("settings");
+        clearCacheSilently("settings");
       } else if (entity === "aggregate") {
-        invalidateCache("group_aggregate");
+        clearCacheSilently("group_aggregate");
       } else if (entity === "all") {
-        invalidateCache();
+        clearCacheSilently();
       }
 
       // Notify registered subscribers

@@ -86,6 +86,7 @@ export interface MemberSummary {
   total_dinner: number;
   total_meal_cost: number;
   total_deposited: number;
+  initial_balance?: number;
   balance: number;
 }
 
@@ -96,6 +97,7 @@ export interface GroupSummary {
   today_lunch_count: number;
   today_dinner_count: number;
   total_group_deposit: number;
+  total_group_adjustment?: number;
   total_group_expense: number;
   remaining_group_balance: number;
   active_members_count: number;
@@ -303,7 +305,9 @@ export interface MemberPersonalStatement {
     total_dinner: number;
     total_meal_cost: number;
     total_deposited: number;
+    initial_balance?: number;
     period_deposited?: number;
+    period_adjusted?: number;
     balance: number;
   };
   dailyMeals: Array<{

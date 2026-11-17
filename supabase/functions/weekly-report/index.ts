@@ -142,6 +142,7 @@ function renderMemberEmailHtml(params: {
   totalWeeklyMeals: number;
   totalWeeklyCost: number;
   weeklyDeposit: number;
+  initialBalance?: number;
   lifetimeDeposits: number;
   lifetimeCost: number;
   currentBalance: number;
@@ -240,6 +241,7 @@ function renderMemberEmailHtml(params: {
                   </td>
                   <td align="right" style="vertical-align: middle;">
                     <div style="font-size: 11px; color: #64748b; line-height: 1.4; text-align: right;">
+                      ${params.initialBalance !== undefined && params.initialBalance !== 0 ? `আগের / প্রারম্ভিক ব্যালেন্স: <strong style="color: ${params.initialBalance >= 0 ? "#059669" : "#e11d48"};">${formatBDT(params.initialBalance)}</strong><br>` : ""}
                       আজীবনের মোট জমা: <strong>${formatBDT(params.lifetimeDeposits)}</strong><br>
                       আজীবনের মোট মিল খরচ: <strong>${formatBDT(params.lifetimeCost)}</strong>
                     </div>
@@ -254,19 +256,27 @@ function renderMemberEmailHtml(params: {
             <td style="padding: 8px 24px 16px 24px;">
               <table role="presentation" width="100%" cellspacing="8" cellpadding="0">
                 <tr>
-                  <td width="33%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
+                  ${params.initialBalance !== undefined && params.initialBalance !== 0 ? `
+                  <td width="25%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
+                    <span style="font-size: 11px; color: #64748b; font-weight: 500;">আগের ব্যালেন্স</span>
+                    <div style="font-size: 16px; font-weight: 700; color: ${params.initialBalance >= 0 ? "#059669" : "#e11d48"}; margin-top: 4px;">
+                      ${formatBDT(params.initialBalance)}
+                    </div>
+                  </td>
+                  ` : ""}
+                  <td width="${params.initialBalance !== undefined && params.initialBalance !== 0 ? "25%" : "33%"}" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
                     <span style="font-size: 11px; color: #64748b; font-weight: 500;">এ সপ্তাহের মিল</span>
                     <div style="font-size: 18px; font-weight: 700; color: #0f172a; margin-top: 4px;">
                       ${params.totalWeeklyMeals}
                     </div>
                   </td>
-                  <td width="33%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
+                  <td width="${params.initialBalance !== undefined && params.initialBalance !== 0 ? "25%" : "33%"}" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
                     <span style="font-size: 11px; color: #64748b; font-weight: 500;">এ সপ্তাহের খরচ</span>
                     <div style="font-size: 18px; font-weight: 700; color: #0f172a; margin-top: 4px;">
                       ${formatBDT(params.totalWeeklyCost)}
                     </div>
                   </td>
-                  <td width="33%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
+                  <td width="${params.initialBalance !== undefined && params.initialBalance !== 0 ? "25%" : "33%"}" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
                     <span style="font-size: 11px; color: #64748b; font-weight: 500;">এ সপ্তাহের জমা</span>
                     <div style="font-size: 18px; font-weight: 700; color: #059669; margin-top: 4px;">
                       ${formatBDT(params.weeklyDeposit)}
@@ -315,7 +325,10 @@ function renderMemberEmailHtml(params: {
                 <tr>
                   <td style="font-size: 12px; color: #64748b; line-height: 1.6;">
                     <strong>হিসাব সমন্বয় সূত্র (Reconciliation Formula):</strong><br>
-                    সর্বমোট জমা (৳${params.lifetimeDeposits}) - সর্বমোট মিল খরচ (৳${params.lifetimeCost}) = বর্তমান ব্যালেন্স (<span style="color: ${balanceColor}; font-weight: 700;">${formatBDT(params.currentBalance)}</span>).
+                    ${params.initialBalance !== undefined && params.initialBalance !== 0
+                      ? `আগের ব্যালেন্স (${formatBDT(params.initialBalance)}) + সর্বমোট জমা (${formatBDT(params.lifetimeDeposits)}) - সর্বমোট মিল খরচ (${formatBDT(params.lifetimeCost)}) = বর্তমান ব্যালেন্স (<span style="color: ${balanceColor}; font-weight: 700;">${formatBDT(params.currentBalance)}</span>).`
+                      : `সর্বমোট জমা (${formatBDT(params.lifetimeDeposits)}) - সর্বমোট মিল খরচ (${formatBDT(params.lifetimeCost)}) = বর্তমান ব্যালেন্স (<span style="color: ${balanceColor}; font-weight: 700;">${formatBDT(params.currentBalance)}</span>).`
+                    }
                   </td>
                 </tr>
               </table>
@@ -772,7 +785,7 @@ serve(async (req: Request) => {
     const isManualRun = Boolean(body.isManualRun); // If true, initiated manually by Admin
 
     // Fetch data in parallel
-    const [membersRes, settingsRes, mealsRes, depositsRes, logsRes] = await Promise.all([
+    const [membersRes, settingsRes, mealsRes, depositsRes, logsRes, adjustmentsRes] = await Promise.all([
       supabase.from("members").select("*").order("name", { ascending: true }),
       supabase.from("settings").select("*").eq("id", 1).single(),
       supabase.from("meal_entries").select("*"),
@@ -781,6 +794,7 @@ serve(async (req: Request) => {
         .eq("report_period_start", startDate)
         .eq("report_period_end", endDate)
         .eq("status", "sent"),
+      supabase.from("adjustments").select("*"),
     ]);
 
     if (membersRes.error) {
@@ -822,6 +836,10 @@ serve(async (req: Request) => {
       ...d,
       amount: Number(d.amount),
     }));
+    const allAdjustments = (adjustmentsRes.data || []).map((a: any) => ({
+      ...a,
+      amount: Number(a.amount) || 0,
+    }));
     const sentLogs = logsRes.data || [];
 
     // Set of emails already successfully sent for this period
@@ -845,9 +863,10 @@ serve(async (req: Request) => {
         continue;
       }
 
-      // Filter member's meals
+      // Filter member's meals, deposits, and adjustments
       const memberMeals = allMeals.filter((m: any) => m.member_id === member.id);
       const memberDeposits = allDeposits.filter((d: any) => d.member_id === member.id);
+      const memberAdjustments = allAdjustments.filter((a: any) => a.member_id === member.id);
 
       // Period meal breakdown
       const dailyBreakdown = datesInRange.map((date) => {
@@ -882,16 +901,21 @@ serve(async (req: Request) => {
         .filter((d: any) => d.deposit_date >= startDate! && d.deposit_date <= endDate!)
         .reduce((acc: number, d: any) => acc + d.amount, 0);
 
-      // Lifetime financials (up to endDate)
+      // Lifetime financials (up to endDate) including initial balance adjustments
       const lifetimeDeposits = memberDeposits
         .filter((d: any) => !endDate || d.deposit_date <= endDate)
         .reduce((acc: number, d: any) => acc + d.amount, 0);
+
+      const lifetimeAdjustments = memberAdjustments
+        .filter((a: any) => !endDate || a.adjustment_date <= endDate)
+        .reduce((acc: number, a: any) => acc + a.amount, 0);
 
       const lifetimeCost = memberMeals
         .filter((m: any) => (!endDate || m.meal_date <= endDate) && m.quantity > 0)
         .reduce((acc: number, m: any) => acc + m.quantity * m.unit_price, 0);
 
-      const currentBalance = lifetimeDeposits - lifetimeCost;
+      const currentBalance = lifetimeDeposits + lifetimeAdjustments - lifetimeCost;
+      const initialBalance = lifetimeAdjustments;
 
       const isDuplicate = alreadySentEmails.has(email.toLowerCase()) && !force;
 
@@ -904,6 +928,7 @@ serve(async (req: Request) => {
         totalWeeklyMeals,
         totalWeeklyCost,
         weeklyDeposit,
+        initialBalance,
         lifetimeDeposits,
         lifetimeCost,
         currentBalance,
@@ -968,15 +993,23 @@ serve(async (req: Request) => {
 
       const totalPeriodMeals = totalPeriodLunch + totalPeriodDinner;
 
-      // Group period deposits
-      const totalPeriodDeposits = allDeposits
-        .filter((d: any) => d.deposit_date >= startDate! && d.deposit_date <= endDate!)
-        .reduce((acc: number, d: any) => acc + d.amount, 0);
+      // Group period deposits and adjustments
+      const totalPeriodDeposits =
+        allDeposits
+          .filter((d: any) => d.deposit_date >= startDate! && d.deposit_date <= endDate!)
+          .reduce((acc: number, d: any) => acc + d.amount, 0) +
+        allAdjustments
+          .filter((a: any) => a.adjustment_date >= startDate! && a.adjustment_date <= endDate!)
+          .reduce((acc: number, a: any) => acc + a.amount, 0);
 
-      // Lifetime group totals (up to endDate)
-      const lifetimeDeposits = allDeposits
-        .filter((d: any) => !endDate || d.deposit_date <= endDate)
-        .reduce((acc: number, d: any) => acc + d.amount, 0);
+      // Lifetime group totals (up to endDate) including initial balance adjustments
+      const lifetimeDeposits =
+        allDeposits
+          .filter((d: any) => !endDate || d.deposit_date <= endDate)
+          .reduce((acc: number, d: any) => acc + d.amount, 0) +
+        allAdjustments
+          .filter((a: any) => !endDate || a.adjustment_date <= endDate)
+          .reduce((acc: number, a: any) => acc + a.amount, 0);
 
       const lifetimeCost = allMeals
         .filter((m: any) => (!endDate || m.meal_date <= endDate) && m.quantity > 0)

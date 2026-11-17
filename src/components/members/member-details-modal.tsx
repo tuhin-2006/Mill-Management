@@ -51,6 +51,7 @@ export interface MemberDetailData {
     total_meals: number;
     total_cost: number;
     total_deposited: number;
+    initial_balance?: number;
     balance: number;
   };
 }
