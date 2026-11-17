@@ -993,14 +993,10 @@ serve(async (req: Request) => {
 
       const totalPeriodMeals = totalPeriodLunch + totalPeriodDinner;
 
-      // Group period deposits and adjustments
-      const totalPeriodDeposits =
-        allDeposits
-          .filter((d: any) => d.deposit_date >= startDate! && d.deposit_date <= endDate!)
-          .reduce((acc: number, d: any) => acc + d.amount, 0) +
-        allAdjustments
-          .filter((a: any) => a.adjustment_date >= startDate! && a.adjustment_date <= endDate!)
-          .reduce((acc: number, a: any) => acc + a.amount, 0);
+      // Group period deposits (strictly cash deposits from members)
+      const totalPeriodDeposits = allDeposits
+        .filter((d: any) => d.deposit_date >= startDate! && d.deposit_date <= endDate!)
+        .reduce((acc: number, d: any) => acc + d.amount, 0);
 
       // Lifetime group totals (up to endDate) including initial balance adjustments
       const lifetimeDeposits =

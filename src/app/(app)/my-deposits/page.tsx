@@ -240,7 +240,29 @@ export default function MyDepositsPage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className={`grid grid-cols-1 ${statement?.summary.initial_balance ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-4`}>
+        {statement?.summary.initial_balance !== undefined && statement?.summary.initial_balance !== 0 && (
+          <Card>
+            <CardContent className="p-5">
+              <span className="text-xs text-muted-foreground uppercase font-semibold">
+                Initial / Previous Balance (আগের বকেয়া)
+              </span>
+              <div
+                className={`text-3xl font-extrabold mt-1 ${
+                  statement.summary.initial_balance >= 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-rose-600 dark:text-rose-400"
+                }`}
+              >
+                {formatBDT(statement.summary.initial_balance)}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {statement.summary.initial_balance >= 0 ? "Advance starting balance" : "Previous due / বকেয়া (15 Nov 2026)"}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardContent className="p-5">
             <span className="text-xs text-muted-foreground uppercase font-semibold">

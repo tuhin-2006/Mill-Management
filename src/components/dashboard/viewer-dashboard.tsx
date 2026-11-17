@@ -279,11 +279,11 @@ export function GroupLedgerViewerDashboard({ initialReport }: ViewerDashboardPro
         {/* 1. Previous Balance (Opening) */}
         <Card
           className={`border shadow-xs transition-all ${
-            !startDate
-              ? "border-border"
-              : isPreviousDue
+            isPreviousDue
               ? "border-destructive/40 bg-gradient-to-br from-card via-card to-destructive/5"
-              : "border-emerald-500/40 bg-gradient-to-br from-card via-card to-emerald-500/5"
+              : (opening?.balance ?? 0) > 0
+              ? "border-emerald-500/40 bg-gradient-to-br from-card via-card to-emerald-500/5"
+              : "border-border"
           }`}
         >
           <CardContent className="p-4 space-y-1.5">
@@ -292,26 +292,30 @@ export function GroupLedgerViewerDashboard({ initialReport }: ViewerDashboardPro
                 Previous Balance (পূর্ববর্তী ব্যালেন্স)
               </span>
               <Badge
-                variant={!startDate ? "secondary" : isPreviousDue ? "destructive" : "success"}
+                variant={isPreviousDue ? "destructive" : (opening?.balance ?? 0) > 0 ? "success" : "secondary"}
                 className="text-[10px] px-1.5 py-0"
               >
-                {!startDate ? "Inception" : isPreviousDue ? "Previous Due" : "Advance B/F"}
+                {isPreviousDue
+                  ? "Previous Deficit / বকেয়া"
+                  : (opening?.balance ?? 0) > 0
+                  ? "Advance Surplus"
+                  : "Inception"}
               </Badge>
             </div>
             <div
               className={`text-xl sm:text-2xl font-extrabold truncate ${
-                !startDate
-                  ? "text-foreground"
-                  : isPreviousDue
+                isPreviousDue
                   ? "text-destructive"
-                  : "text-emerald-600 dark:text-emerald-400"
+                  : (opening?.balance ?? 0) > 0
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-foreground"
               }`}
             >
-              {!startDate ? "৳0" : formatBDT(opening?.balance ?? 0)}
+              {formatBDT(opening?.balance ?? 0)}
             </div>
             <p className="text-[11px] text-muted-foreground truncate">
               {!startDate
-                ? "Starting from inception"
+                ? "Starting balance / Previous due (আগের বকেয়া)"
                 : `Cost: ${formatBDT(opening?.total_cost ?? 0)} • Dep: ${formatBDT(
                     opening?.total_deposit ?? 0
                   )}`}

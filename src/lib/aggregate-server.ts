@@ -26,7 +26,7 @@ export async function computeGroupAggregateReport(
     supabaseAdmin.from("meal_entries").select("meal_date, session, quantity, unit_price"),
     supabaseAdmin.from("deposits").select("deposit_date, amount"),
     supabaseAdmin.from("members").select("id, status"),
-    supabaseAdmin.from("adjustments").select("adjustment_date, amount"),
+    supabaseAdmin.from("adjustments").select("adjustment_date, amount, note"),
   ]);
 
   const meals = (mealsRes.data || []).map((m) => ({
@@ -45,19 +45,33 @@ export async function computeGroupAggregateReport(
 
   const activeCount = (membersRes.data || []).filter((m) => m.status === "active").length;
 
-  // Calculate opening balance before startDate
-  let openingDeposit = 0;
+  // Initial balances (inception balances set on or before 15 Nov 2026: total -1320 BDT)
+  const initialBalanceAdjustments = adjustments.filter(
+    (a) => !a.note || a.note.toLowerCase().includes("initial balance") || a.adjustment_date <= "2026-11-15"
+  );
+  const totalInitialBalance = initialBalanceAdjustments.reduce((acc, a) => acc + a.amount, 0);
+
+  // Calculate opening balance before startDate (or inception if no startDate)
+  let openingDeposit = totalInitialBalance;
   let openingCost = 0;
-  let openingBalance = 0;
+
   if (startDate) {
-    openingDeposit =
-      deposits.filter((d) => d.deposit_date < startDate).reduce((acc, d) => acc + d.amount, 0) +
-      adjustments.filter((a) => a.adjustment_date < startDate).reduce((acc, a) => acc + a.amount, 0);
+    openingDeposit += deposits
+      .filter((d) => d.deposit_date < startDate)
+      .reduce((acc, d) => acc + d.amount, 0);
+    openingDeposit += adjustments
+      .filter(
+        (a) =>
+          a.adjustment_date < startDate &&
+          !(!a.note || a.note.toLowerCase().includes("initial balance") || a.adjustment_date <= "2026-11-15")
+      )
+      .reduce((acc, a) => acc + a.amount, 0);
     openingCost = meals
       .filter((m) => m.meal_date < startDate)
       .reduce((acc, m) => acc + (m.quantity > 0 ? m.quantity * m.unit_price : 0), 0);
-    openingBalance = openingDeposit - openingCost;
   }
+
+  const openingBalance = openingDeposit - openingCost;
 
   const datesMap = new Map<
     string,
@@ -110,8 +124,11 @@ export async function computeGroupAggregateReport(
     datesMap.set(d.deposit_date, row);
   }
 
-  // Aggregate adjustments (including initial balances on 15 Nov 2026) by date
+  // Aggregate mid-period non-initial adjustments (if any; initial balance is already in openingBalance)
   for (const a of adjustments) {
+    const isInitial =
+      !a.note || a.note.toLowerCase().includes("initial balance") || a.adjustment_date <= "2026-11-15";
+    if (isInitial) continue;
     if (startDate && a.adjustment_date < startDate) continue;
     if (endDate && a.adjustment_date > endDate) continue;
 
@@ -124,7 +141,6 @@ export async function computeGroupAggregateReport(
       deposit_count: 0,
     };
     row.total_deposit += a.amount;
-    row.deposit_count += 1;
     datesMap.set(a.adjustment_date, row);
   }
 
@@ -155,15 +171,24 @@ export async function computeGroupAggregateReport(
   // Reverse so newest records appear first for display
   const daily_rows: GroupAggregateDailyRow[] = sortedAsc.reverse();
 
-  // Aggregate payments by date (STRICTLY excludes member names and private notes)
-  const daily_payments: GroupDailyPayment[] = daily_rows
-    .filter((r) => r.total_deposit !== 0)
-    .map((r) => ({
-      deposit_date: r.meal_date,
-      day_name: r.day_name,
-      is_friday: r.is_friday,
-      total_amount: r.total_deposit,
-      deposit_count: (r as { deposit_count?: number }).deposit_count || 1,
+  // Aggregate payments by date strictly from deposits table (excludes initial balance adjustments)
+  const paymentDatesMap = new Map<string, { total_amount: number; deposit_count: number }>();
+  for (const d of deposits) {
+    if (startDate && d.deposit_date < startDate) continue;
+    if (endDate && d.deposit_date > endDate) continue;
+    const existing = paymentDatesMap.get(d.deposit_date) || { total_amount: 0, deposit_count: 0 };
+    existing.total_amount += d.amount;
+    existing.deposit_count += 1;
+    paymentDatesMap.set(d.deposit_date, existing);
+  }
+
+  const daily_payments: GroupDailyPayment[] = Array.from(paymentDatesMap.entries())
+    .map(([date, p]) => ({
+      deposit_date: date,
+      day_name: getWeekdayName(date),
+      is_friday: isFridayDate(date),
+      total_amount: p.total_amount,
+      deposit_count: p.deposit_count,
     }))
     .sort((a, b) => b.deposit_date.localeCompare(a.deposit_date));
 

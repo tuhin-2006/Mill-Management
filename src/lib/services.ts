@@ -1089,24 +1089,10 @@ export async function getMemberLedger(
   const totalAdjusted = adjustments.reduce((acc, a) => acc + a.amount, 0);
   const balance = totalDeposited + totalAdjusted - totalCost;
 
-  // Combine deposits and adjustments so member details modal and ledger show full history
-  const allFinancialRecords = [
-    ...deposits,
-    ...adjustments.map((a) => ({
-      id: a.id,
-      member_id: a.member_id || member?.id || "",
-      amount: a.amount,
-      deposit_date: a.adjustment_date,
-      note: a.note,
-      created_at: a.created_at,
-      updated_at: a.created_at,
-    })),
-  ].sort((a, b) => b.deposit_date.localeCompare(a.deposit_date));
-
   return {
     member,
     dailyMeals,
-    deposits: allFinancialRecords,
+    deposits, // Strictly real monetary deposits
     summary: {
       total_meals: totalMeals,
       total_cost: totalCost,
@@ -1291,13 +1277,29 @@ export async function getPeriodLedgerReport(
     }
   }
 
-  // Process all adjustments (e.g. initial balances, credit/debit adjustments)
+  // Process all adjustments (initial balances are treated strictly as Previous/Opening Balance)
   for (const adj of adjustments) {
+    const isInitialBalance =
+      !adj.note ||
+      adj.note.toLowerCase().includes("initial balance") ||
+      adj.adjustment_date <= "2026-11-15";
     const isBeforeStart = startDate ? adj.adjustment_date < startDate : false;
     const isAfterEnd = endDate ? adj.adjustment_date > endDate : false;
     const isInPeriod = !isBeforeStart && !isAfterEnd;
 
-    if (isBeforeStart) {
+    if (isInitialBalance) {
+      // Initial balances are the starting balance / Previous Due (আগের বকেয়া / শুরুর ব্যালেন্স)
+      // They are ALWAYS credited to opening/previous balance, NEVER as a period deposit or payment transaction!
+      if (!isMemberFiltered || adj.member_id === memberId) {
+        openingDeposit += adj.amount;
+      }
+      if (adj.member_id) {
+        const prev = memberPreviousMap.get(adj.member_id);
+        if (prev) {
+          prev.deposit += adj.amount;
+        }
+      }
+    } else if (isBeforeStart) {
       if (!isMemberFiltered || adj.member_id === memberId) {
         openingDeposit += adj.amount;
       }
@@ -1308,32 +1310,9 @@ export async function getPeriodLedgerReport(
         }
       }
     } else if (isInPeriod) {
+      // Mid-period manual adjustments (non-initial)
       if (!isMemberFiltered || adj.member_id === memberId) {
         periodDeposit += adj.amount;
-
-        // Add to daily period deposit/financial movement map
-        const dateList = dailyPeriodDepositMap.get(adj.adjustment_date) || [];
-        dateList.push({
-          id: adj.id,
-          member_id: adj.member_id || "",
-          amount: adj.amount,
-          deposit_date: adj.adjustment_date,
-          note: adj.note,
-          created_at: adj.created_at,
-          updated_at: adj.created_at,
-        });
-        dailyPeriodDepositMap.set(adj.adjustment_date, dateList);
-
-        // Record payment/adjustment transaction
-        paymentTransactions.push({
-          id: adj.id,
-          deposit_date: adj.adjustment_date,
-          member_id: adj.member_id || "",
-          member_name: (adj.member_id ? memberMap.get(adj.member_id) : undefined) || "Adjustment",
-          amount: adj.amount,
-          note: adj.note || undefined,
-          created_at: adj.created_at,
-        });
       }
 
       if (adj.member_id) {
@@ -1714,20 +1693,6 @@ export async function getMemberPersonalStatement(
   const periodDeposited = filteredDeposits.reduce((acc, d) => acc + d.amount, 0);
   const periodAdjusted = filteredAdjustments.reduce((acc, a) => acc + a.amount, 0);
 
-  // Combine deposits and adjustments for transparent chronological ledger
-  const allPeriodFinancialRecords: Deposit[] = [
-    ...filteredDeposits,
-    ...filteredAdjustments.map((a) => ({
-      id: a.id,
-      member_id: a.member_id || member.id,
-      amount: a.amount,
-      deposit_date: a.adjustment_date,
-      note: a.note,
-      created_at: a.created_at,
-      updated_at: a.created_at,
-    })),
-  ].sort((a, b) => b.deposit_date.localeCompare(a.deposit_date));
-
   const result: MemberPersonalStatement = {
     member,
     summary: {
@@ -1742,7 +1707,7 @@ export async function getMemberPersonalStatement(
       balance: currentBalance,
     },
     dailyMeals,
-    deposits: allPeriodFinancialRecords,
+    deposits: filteredDeposits, // Strictly real monetary deposits
   };
 
   setToCache(cacheKey, result);
