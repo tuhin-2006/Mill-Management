@@ -297,31 +297,56 @@ export default function MyDepositsPage() {
               No deposit records logged for this selected period.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead>
-                  <tr className="border-b border-border text-muted-foreground uppercase text-[10px] font-semibold">
-                    <th className="py-2.5 px-3">Date</th>
-                    <th className="py-2.5 px-3">Note / Details</th>
-                    <th className="py-2.5 px-3 text-right">Amount (BDT)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/60">
-                  {statement.deposits.map((d) => (
-                    <tr key={d.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="py-2.5 px-3 font-medium text-foreground">
-                        {formatDate(d.deposit_date)}
-                      </td>
-                      <td className="py-2.5 px-3 text-muted-foreground">
-                        {d.note || "Regular Mess Deposit"}
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400 text-sm">
-                        +{formatBDT(d.amount)}
-                      </td>
+            <div className="space-y-2.5">
+              {/* Desktop / Tablet Table View */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead>
+                    <tr className="border-b border-border text-muted-foreground uppercase text-[10px] font-semibold">
+                      <th className="py-2.5 px-3">Date</th>
+                      <th className="py-2.5 px-3">Note / Details</th>
+                      <th className="py-2.5 px-3 text-right">Amount (BDT)</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-border/60">
+                    {statement.deposits.map((d) => (
+                      <tr key={d.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="py-2.5 px-3 font-medium text-foreground">
+                          {formatDate(d.deposit_date)}
+                        </td>
+                        <td className="py-2.5 px-3 text-muted-foreground">
+                          {d.note || "Regular Mess Deposit"}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400 text-sm">
+                          +{formatBDT(d.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Phone Card View */}
+              <div className="sm:hidden space-y-2">
+                {statement.deposits.map((d) => (
+                  <div
+                    key={d.id}
+                    className="p-3 rounded-xl border border-border bg-card/60 shadow-2xs space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-xs text-foreground">
+                        {formatDate(d.deposit_date)}
+                      </span>
+                      <span className="font-bold text-sm text-emerald-600 dark:text-emerald-400">
+                        +{formatBDT(d.amount)}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground truncate">
+                      {d.note || "Regular Mess Deposit"}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </CardContent>

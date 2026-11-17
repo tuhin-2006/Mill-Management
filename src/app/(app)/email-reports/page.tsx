@@ -824,7 +824,7 @@ export default function EmailReportsPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
+              <table className="w-full min-w-[700px] text-sm text-left">
                 <thead className="text-[11px] font-semibold uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border/70">
                   <tr>
                     <th className="py-3 px-4">Dispatched At</th>

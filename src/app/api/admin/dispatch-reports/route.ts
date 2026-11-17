@@ -24,7 +24,7 @@ function getWeeklyPeriod(targetDateStr?: string): { startDate: string; endDate: 
   const baseDate = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
   const dayOfWeek = baseDate.getUTCDay(); // 0 = Sun, ..., 5 = Fri, 6 = Sat
 
-  let diffToFriday = 5 - dayOfWeek;
+  const diffToFriday = 5 - dayOfWeek;
   const endDateObj = new Date(baseDate.getTime() + diffToFriday * 86400000);
   const startDateObj = new Date(endDateObj.getTime() - 6 * 86400000);
 

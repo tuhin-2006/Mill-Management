@@ -20,6 +20,7 @@ import {
   GroupAggregateReport,
   MemberPersonalStatement,
   EmailLog,
+  Adjustment,
 } from "@/types";
 import { getTodayInDhaka, getWeekdayName, isFridayDate } from "@/lib/date";
 
@@ -603,11 +604,12 @@ export async function getDashboardData(
 
   const today = getTodayInDhaka();
 
-  // Execute 3 essential tables in parallel in a single round-trip!
-  const [membersRes, mealsRes, depositsRes] = await Promise.all([
+  // Execute essential tables in parallel in a single round-trip!
+  const [membersRes, mealsRes, depositsRes, adjustmentsRes] = await Promise.all([
     supabase.from("members").select("*").order("name", { ascending: true }),
     supabase.from("meal_entries").select("*"),
     supabase.from("deposits").select("*, member:members(*)").order("deposit_date", { ascending: false }),
+    supabase.from("adjustments").select("*"),
   ]);
 
   if (membersRes.error) {
@@ -628,6 +630,11 @@ export async function getDashboardData(
     amount: Number(d.amount),
   }));
 
+  const allAdjustments: Adjustment[] = (adjustmentsRes.data || []).map((a) => ({
+    ...a,
+    amount: Number(a.amount),
+  }));
+
   // Today's meal entries
   const todayMeals = allMeals.filter((m) => m.meal_date === today);
 
@@ -638,6 +645,7 @@ export async function getDashboardData(
   const memberSummaries: MemberSummary[] = members.map((member) => {
     const memberMeals = allMeals.filter((m) => m.member_id === member.id);
     const memberDeposits = allDeposits.filter((d) => d.member_id === member.id);
+    const memberAdjustments = allAdjustments.filter((a) => a.member_id === member.id);
 
     let totalLunch = 0;
     let totalDinner = 0;
@@ -652,7 +660,8 @@ export async function getDashboardData(
     }
 
     const totalDeposited = memberDeposits.reduce((acc, d) => acc + d.amount, 0);
-    const balance = totalDeposited - totalCost;
+    const totalAdjusted = memberAdjustments.reduce((acc, a) => acc + a.amount, 0);
+    const balance = totalDeposited + totalAdjusted - totalCost;
 
     return {
       id: member.id,
@@ -682,13 +691,14 @@ export async function getDashboardData(
     }
   }
 
-  // All-time group financial statistics
+  // All-time group financial statistics (including initial balance adjustments)
   const totalGroupDeposit = allDeposits.reduce((acc, d) => acc + d.amount, 0);
+  const totalGroupAdjustment = allAdjustments.reduce((acc, a) => acc + a.amount, 0);
   const totalGroupExpense = allMeals.reduce(
     (acc, m) => acc + (m.quantity > 0 ? m.quantity * m.unit_price : 0),
     0
   );
-  const remainingGroupBalance = totalGroupDeposit - totalGroupExpense;
+  const remainingGroupBalance = totalGroupDeposit + totalGroupAdjustment - totalGroupExpense;
   const activeMembersCount = members.filter((m) => m.status === "active").length;
 
   const summary: GroupSummary = {
@@ -730,11 +740,12 @@ export async function getGroupSummary(
 
   const today = getTodayInDhaka();
 
-  // Fetch parallel datasets (today meals are derived in-memory from all meals, saving 1 remote database query)
-  const [membersRes, mealsRes, depositsRes] = await Promise.all([
+  // Fetch parallel datasets
+  const [membersRes, mealsRes, depositsRes, adjustmentsRes] = await Promise.all([
     supabase.from("members").select("*").order("name", { ascending: true }),
     supabase.from("meal_entries").select("*"),
     supabase.from("deposits").select("*"),
+    supabase.from("adjustments").select("*"),
   ]);
 
   if (membersRes.error) {
@@ -750,12 +761,17 @@ export async function getGroupSummary(
     ...d,
     amount: Number(d.amount),
   }));
+  const allAdjustments: Adjustment[] = (adjustmentsRes.data || []).map((a) => ({
+    ...a,
+    amount: Number(a.amount),
+  }));
   const todayMeals: MealEntry[] = allMeals.filter((m) => m.meal_date === today);
 
   // Member summaries map
   const memberSummaries: MemberSummary[] = members.map((member) => {
     const memberMeals = allMeals.filter((m) => m.member_id === member.id);
     const memberDeposits = allDeposits.filter((d) => d.member_id === member.id);
+    const memberAdjustments = allAdjustments.filter((a) => a.member_id === member.id);
 
     let totalLunch = 0;
     let totalDinner = 0;
@@ -770,7 +786,8 @@ export async function getGroupSummary(
     }
 
     const totalDeposited = memberDeposits.reduce((acc, d) => acc + d.amount, 0);
-    const balance = totalDeposited - totalCost;
+    const totalAdjusted = memberAdjustments.reduce((acc, a) => acc + a.amount, 0);
+    const balance = totalDeposited + totalAdjusted - totalCost;
 
     return {
       id: member.id,
@@ -800,13 +817,14 @@ export async function getGroupSummary(
     }
   }
 
-  // All-time group financial statistics
+  // All-time group financial statistics (incorporating initial balance adjustments)
   const totalGroupDeposit = allDeposits.reduce((acc, d) => acc + d.amount, 0);
+  const totalGroupAdjustment = allAdjustments.reduce((acc, a) => acc + a.amount, 0);
   const totalGroupExpense = allMeals.reduce(
     (acc, m) => acc + (m.quantity > 0 ? m.quantity * m.unit_price : 0),
     0
   );
-  const remainingGroupBalance = totalGroupDeposit - totalGroupExpense;
+  const remainingGroupBalance = totalGroupDeposit + totalGroupAdjustment - totalGroupExpense;
 
   const activeMembersCount = members.filter((m) => m.status === "active").length;
 
@@ -915,7 +933,7 @@ export async function getMemberLedger(
     balance: number;
   };
 }> {
-  const [memberRes, mealsRes, depositsRes] = await Promise.all([
+  const [memberRes, mealsRes, depositsRes, adjustmentsRes] = await Promise.all([
     supabase.from("members").select("*").eq("id", memberId).single(),
     supabase
       .from("meal_entries")
@@ -927,6 +945,11 @@ export async function getMemberLedger(
       .select("*")
       .eq("member_id", memberId)
       .order("deposit_date", { ascending: false }),
+    supabase
+      .from("adjustments")
+      .select("*")
+      .eq("member_id", memberId)
+      .order("adjustment_date", { ascending: false }),
   ]);
 
   const member: Member | null = memberRes.data || null;
@@ -937,6 +960,10 @@ export async function getMemberLedger(
   const deposits: Deposit[] = (depositsRes.data || []).map((d) => ({
     ...d,
     amount: Number(d.amount),
+  }));
+  const adjustments: Adjustment[] = (adjustmentsRes.data || []).map((a) => ({
+    ...a,
+    amount: Number(a.amount),
   }));
 
   // Aggregate meals by date
@@ -976,7 +1003,8 @@ export async function getMemberLedger(
   const totalMeals = dailyMeals.reduce((acc, m) => acc + m.total_meals, 0);
   const totalCost = dailyMeals.reduce((acc, m) => acc + m.total_cost, 0);
   const totalDeposited = deposits.reduce((acc, d) => acc + d.amount, 0);
-  const balance = totalDeposited - totalCost;
+  const totalAdjusted = adjustments.reduce((acc, a) => acc + a.amount, 0);
+  const balance = totalDeposited + totalAdjusted - totalCost;
 
   return {
     member,
@@ -1008,10 +1036,11 @@ export async function getPeriodLedgerReport(
   const cached = getFromCache<PeriodLedgerReport>(cacheKey);
   if (cached) return cached;
 
-  const [membersRes, mealsRes, depositsRes] = await Promise.all([
+  const [membersRes, mealsRes, depositsRes, adjustmentsRes] = await Promise.all([
     supabase.from("members").select("*").order("name", { ascending: true }),
     supabase.from("meal_entries").select("*"),
     supabase.from("deposits").select("*"),
+    supabase.from("adjustments").select("*"),
   ]);
 
   if (membersRes.error) {
@@ -1042,6 +1071,10 @@ export async function getPeriodLedgerReport(
   const deposits: Deposit[] = (depositsRes.data || []).map((d) => ({
     ...d,
     amount: Number(d.amount),
+  }));
+  const adjustments: Adjustment[] = (adjustmentsRes?.data || []).map((a) => ({
+    ...a,
+    amount: Number(a.amount),
   }));
 
   // Separate Opening (records strictly BEFORE startDate)
@@ -1156,6 +1189,60 @@ export async function getPeriodLedgerReport(
       const pMember = memberPeriodMap.get(dep.member_id);
       if (pMember) {
         pMember.deposit += dep.amount;
+      }
+    }
+  }
+
+  // Process all adjustments (e.g. initial balances, credit/debit adjustments)
+  for (const adj of adjustments) {
+    const isBeforeStart = startDate ? adj.adjustment_date < startDate : false;
+    const isAfterEnd = endDate ? adj.adjustment_date > endDate : false;
+    const isInPeriod = !isBeforeStart && !isAfterEnd;
+
+    if (isBeforeStart) {
+      if (!isMemberFiltered || adj.member_id === memberId) {
+        openingDeposit += adj.amount;
+      }
+      if (adj.member_id) {
+        const prev = memberPreviousMap.get(adj.member_id);
+        if (prev) {
+          prev.deposit += adj.amount;
+        }
+      }
+    } else if (isInPeriod) {
+      if (!isMemberFiltered || adj.member_id === memberId) {
+        periodDeposit += adj.amount;
+
+        // Add to daily period deposit/financial movement map
+        const dateList = dailyPeriodDepositMap.get(adj.adjustment_date) || [];
+        dateList.push({
+          id: adj.id,
+          member_id: adj.member_id || "",
+          amount: adj.amount,
+          deposit_date: adj.adjustment_date,
+          note: adj.note,
+          created_at: adj.created_at,
+          updated_at: adj.created_at,
+        });
+        dailyPeriodDepositMap.set(adj.adjustment_date, dateList);
+
+        // Record payment/adjustment transaction
+        paymentTransactions.push({
+          id: adj.id,
+          deposit_date: adj.adjustment_date,
+          member_id: adj.member_id || "",
+          member_name: (adj.member_id ? memberMap.get(adj.member_id) : undefined) || "Adjustment",
+          amount: adj.amount,
+          note: adj.note || undefined,
+          created_at: adj.created_at,
+        });
+      }
+
+      if (adj.member_id) {
+        const pMember = memberPeriodMap.get(adj.member_id);
+        if (pMember) {
+          pMember.deposit += adj.amount;
+        }
       }
     }
   }
@@ -1436,10 +1523,11 @@ export async function getMemberPersonalStatement(
   const cached = getFromCache<MemberPersonalStatement>(cacheKey);
   if (cached) return cached;
 
-  const [memberRes, mealsRes, depositsRes] = await Promise.all([
+  const [memberRes, mealsRes, depositsRes, adjustmentsRes] = await Promise.all([
     supabase.from("members").select("*").eq("id", memberId).single(),
     supabase.from("meal_entries").select("*").eq("member_id", memberId),
     supabase.from("deposits").select("*").eq("member_id", memberId).order("deposit_date", { ascending: false }),
+    supabase.from("adjustments").select("*").eq("member_id", memberId).order("adjustment_date", { ascending: false }),
   ]);
 
   if (memberRes.error || !memberRes.data) {
@@ -1456,8 +1544,12 @@ export async function getMemberPersonalStatement(
     ...d,
     amount: Number(d.amount),
   }));
+  const adjustments: Adjustment[] = (adjustmentsRes?.data || []).map((a) => ({
+    ...a,
+    amount: Number(a.amount),
+  }));
 
-  // Filter meals & deposits if period given
+  // Filter meals, deposits & adjustments if period given
   const filteredMeals = rawMeals.filter((m) => {
     if (startDate && m.meal_date < startDate) return false;
     if (endDate && m.meal_date > endDate) return false;
@@ -1467,6 +1559,12 @@ export async function getMemberPersonalStatement(
   const filteredDeposits = deposits.filter((d) => {
     if (startDate && d.deposit_date < startDate) return false;
     if (endDate && d.deposit_date > endDate) return false;
+    return true;
+  });
+
+  const filteredAdjustments = adjustments.filter((a) => {
+    if (startDate && a.adjustment_date < startDate) return false;
+    if (endDate && a.adjustment_date > endDate) return false;
     return true;
   });
 
@@ -1498,13 +1596,14 @@ export async function getMemberPersonalStatement(
     }))
     .sort((a, b) => b.meal_date.localeCompare(a.meal_date));
 
-  // Lifetime metrics
+  // Lifetime metrics (incorporating adjustments)
   const totalLifetimeDeposited = deposits.reduce((acc, d) => acc + d.amount, 0);
+  const totalLifetimeAdjusted = adjustments.reduce((acc, a) => acc + a.amount, 0);
   const totalLifetimeMealCost = rawMeals.reduce(
     (acc, m) => acc + (m.quantity > 0 ? m.quantity * m.unit_price : 0),
     0
   );
-  const currentBalance = totalLifetimeDeposited - totalLifetimeMealCost;
+  const currentBalance = totalLifetimeDeposited + totalLifetimeAdjusted - totalLifetimeMealCost;
 
   let totalLunch = 0;
   let totalDinner = 0;
@@ -1515,6 +1614,21 @@ export async function getMemberPersonalStatement(
 
   const periodCost = filteredMeals.reduce((acc, m) => acc + m.quantity * m.unit_price, 0);
   const periodDeposited = filteredDeposits.reduce((acc, d) => acc + d.amount, 0);
+  const periodAdjusted = filteredAdjustments.reduce((acc, a) => acc + a.amount, 0);
+
+  // Combine deposits and adjustments for transparent chronological ledger
+  const allPeriodFinancialRecords: Deposit[] = [
+    ...filteredDeposits,
+    ...filteredAdjustments.map((a) => ({
+      id: a.id,
+      member_id: a.member_id || member.id,
+      amount: a.amount,
+      deposit_date: a.adjustment_date,
+      note: a.note,
+      created_at: a.created_at,
+      updated_at: a.created_at,
+    })),
+  ].sort((a, b) => b.deposit_date.localeCompare(a.deposit_date));
 
   const result: MemberPersonalStatement = {
     member,
@@ -1523,12 +1637,12 @@ export async function getMemberPersonalStatement(
       total_lunch: totalLunch,
       total_dinner: totalDinner,
       total_meal_cost: periodCost,
-      total_deposited: totalLifetimeDeposited,
-      period_deposited: periodDeposited,
+      total_deposited: totalLifetimeDeposited + totalLifetimeAdjusted,
+      period_deposited: periodDeposited + periodAdjusted,
       balance: currentBalance,
     },
     dailyMeals,
-    deposits: filteredDeposits,
+    deposits: allPeriodFinancialRecords,
   };
 
   setToCache(cacheKey, result);
@@ -1561,8 +1675,8 @@ export async function getGroupAggregateLedger(
     let openingDeposit = 0;
     let openingBalance = 0;
     if (startDate && rawData.lifetime && rawData.period) {
-      openingDeposit = Math.max(0, rawData.lifetime.total_deposits - rawData.period.total_deposit);
-      openingCost = Math.max(0, rawData.lifetime.total_expenses - rawData.period.total_cost);
+      openingDeposit = (rawData.lifetime.total_deposits ?? 0) - (rawData.period.total_deposit ?? 0);
+      openingCost = Math.max(0, (rawData.lifetime.total_expenses ?? 0) - (rawData.period.total_cost ?? 0));
       openingBalance = openingDeposit - openingCost;
     }
 
@@ -1578,7 +1692,7 @@ export async function getGroupAggregateLedger(
 
     // Aggregate date-wise payments (STRICTLY excludes member names and private notes)
     const daily_payments: GroupDailyPayment[] = enrichedRows
-      .filter((r) => r.total_deposit > 0)
+      .filter((r) => r.total_deposit !== 0)
       .map((r) => ({
         deposit_date: r.meal_date,
         day_name: r.day_name,
@@ -1615,10 +1729,11 @@ export async function getGroupAggregateLedger(
   }
 
   // Fallback if RPC is not yet executed in database (computes aggregate totals without member names)
-  const [mealsRes, depositsRes, membersRes] = await Promise.all([
+  const [mealsRes, depositsRes, membersRes, adjustmentsRes] = await Promise.all([
     supabase.from("meal_entries").select("meal_date, session, quantity, unit_price"),
     supabase.from("deposits").select("deposit_date, amount"),
     supabase.from("members").select("id, status"),
+    supabase.from("adjustments").select("adjustment_date, amount"),
   ]);
 
   const meals = (mealsRes.data || []).map((m) => ({
@@ -1630,15 +1745,21 @@ export async function getGroupAggregateLedger(
     ...d,
     amount: Number(d.amount),
   }));
+  const adjustments = (adjustmentsRes.data || []).map((a) => ({
+    ...a,
+    amount: Number(a.amount),
+  }));
 
   const activeCount = (membersRes.data || []).filter((m) => m.status === "active").length;
 
-  // Opening balance before startDate
+  // Opening balance before startDate (incorporates adjustments)
   let openingDeposit = 0;
   let openingCost = 0;
   let openingBalance = 0;
   if (startDate) {
-    openingDeposit = deposits.filter((d) => d.deposit_date < startDate).reduce((acc, d) => acc + d.amount, 0);
+    openingDeposit =
+      deposits.filter((d) => d.deposit_date < startDate).reduce((acc, d) => acc + d.amount, 0) +
+      adjustments.filter((a) => a.adjustment_date < startDate).reduce((acc, a) => acc + a.amount, 0);
     openingCost = meals.filter((m) => m.meal_date < startDate).reduce((acc, m) => acc + (m.quantity > 0 ? m.quantity * m.unit_price : 0), 0);
     openingBalance = openingDeposit - openingCost;
   }
@@ -1671,6 +1792,16 @@ export async function getGroupAggregateLedger(
     datesMap.set(d.deposit_date, row);
   }
 
+  for (const a of adjustments) {
+    if (startDate && a.adjustment_date < startDate) continue;
+    if (endDate && a.adjustment_date > endDate) continue;
+
+    const row = datesMap.get(a.adjustment_date) || { lunch_count: 0, dinner_count: 0, total_meals: 0, total_cost: 0, total_deposit: 0, deposit_count: 0 };
+    row.total_deposit += a.amount;
+    row.deposit_count += 1;
+    datesMap.set(a.adjustment_date, row);
+  }
+
   // Chronological progression for running balance
   const sortedAsc = Array.from(datesMap.entries())
     .map(([date, d]) => ({
@@ -1699,7 +1830,7 @@ export async function getGroupAggregateLedger(
 
   // Aggregate date-wise payments (Strictly aggregate totals, NO member names)
   const daily_payments: GroupDailyPayment[] = daily_rows
-    .filter((r) => r.total_deposit > 0)
+    .filter((r) => r.total_deposit !== 0)
     .map((r) => ({
       deposit_date: r.meal_date,
       day_name: r.day_name,
@@ -1715,7 +1846,9 @@ export async function getGroupAggregateLedger(
   const totalPeriodCost = daily_rows.reduce((acc, r) => acc + r.total_cost, 0);
   const totalPeriodDeposit = daily_rows.reduce((acc, r) => acc + r.total_deposit, 0);
 
-  const totalLifetimeDeposits = deposits.reduce((acc, d) => acc + d.amount, 0);
+  const totalLifetimeDeposits =
+    deposits.reduce((acc, d) => acc + d.amount, 0) +
+    adjustments.reduce((acc, a) => acc + a.amount, 0);
   const totalLifetimeExpenses = meals.reduce((acc, m) => acc + (m.quantity > 0 ? m.quantity * m.unit_price : 0), 0);
 
   const report: GroupAggregateReport = {

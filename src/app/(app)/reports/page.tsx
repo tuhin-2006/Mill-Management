@@ -425,7 +425,8 @@ export default function ReportsPage() {
           <CardTitle className="text-base font-semibold">Daily Meal Ledger Audit (Period Log)</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          {/* Desktop Table View */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-xs text-left">
               <thead>
                 <tr className="border-b border-border text-muted-foreground uppercase text-[10px] font-semibold">
@@ -450,6 +451,30 @@ export default function ReportsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile Phone Cards View */}
+          <div className="sm:hidden space-y-2">
+            {ledgerRows.map((r) => (
+              <div
+                key={r.meal_date}
+                className="p-3 rounded-xl border border-border bg-card/60 shadow-2xs space-y-1.5"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                    <span>{r.meal_date}</span>
+                    <span className="text-[11px] font-normal text-muted-foreground">({r.day_name})</span>
+                  </div>
+                  <span className="font-bold text-sm text-foreground">
+                    {formatBDT(r.total_cost)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{r.total_meals} meals</span>
+                  <span>Lunch: {r.lunch_count} • Dinner: {r.dinner_count}</span>
+                </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>

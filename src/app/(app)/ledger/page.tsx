@@ -1731,101 +1731,183 @@ function LedgerPageContent() {
                 No member records found.
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-border bg-card">
-                <table className="w-full text-xs text-left">
-                  <thead className="text-[10px] uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border">
-                    <tr>
-                      <th className="py-3 px-3.5 font-semibold">Member</th>
-                      <th className="py-3 px-3.5 text-right font-semibold">Previous Bal (B/F)</th>
-                      <th className="py-3 px-3.5 text-center font-semibold">Period Meals</th>
-                      <th className="py-3 px-3.5 text-right font-semibold">Meal Expense</th>
-                      <th className="py-3 px-3.5 text-right font-semibold">Period Paid</th>
-                      <th className="py-3 px-3.5 text-right font-semibold">Period Net</th>
-                      <th className="py-3 px-3.5 text-right font-semibold">Closing Balance</th>
-                      <th className="py-3 px-3.5 text-center font-semibold">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {report.memberStatements.map((ms) => {
-                      const isClosingPositive = ms.closing_balance >= 0;
-                      const isPrevPositive = ms.previous_balance >= 0;
+              <div className="space-y-3">
+                {/* Desktop & Tablet Table View */}
+                <div className="hidden sm:block overflow-x-auto rounded-xl border border-border bg-card">
+                  <table className="w-full text-xs text-left">
+                    <thead className="text-[10px] uppercase tracking-wider bg-muted/50 text-muted-foreground border-b border-border">
+                      <tr>
+                        <th className="py-3 px-3.5 font-semibold">Member</th>
+                        <th className="py-3 px-3.5 text-right font-semibold">Previous Bal (B/F)</th>
+                        <th className="py-3 px-3.5 text-center font-semibold">Period Meals</th>
+                        <th className="py-3 px-3.5 text-right font-semibold">Meal Expense</th>
+                        <th className="py-3 px-3.5 text-right font-semibold">Period Paid</th>
+                        <th className="py-3 px-3.5 text-right font-semibold">Period Net</th>
+                        <th className="py-3 px-3.5 text-right font-semibold">Closing Balance</th>
+                        <th className="py-3 px-3.5 text-center font-semibold">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {report.memberStatements.map((ms) => {
+                        const isClosingPositive = ms.closing_balance >= 0;
+                        const isPrevPositive = ms.previous_balance >= 0;
 
-                      return (
-                        <tr key={ms.member_id} className="hover:bg-muted/30 transition-colors">
-                          <td className="py-3 px-3.5 font-bold text-foreground">
-                            <div className="flex items-center gap-2">
-                              <span className="h-6 w-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">
-                                {ms.member_name.slice(0, 2).toUpperCase()}
+                        return (
+                          <tr key={ms.member_id} className="hover:bg-muted/30 transition-colors">
+                            <td className="py-3 px-3.5 font-bold text-foreground">
+                              <div className="flex items-center gap-2">
+                                <span className="h-6 w-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">
+                                  {ms.member_name.slice(0, 2).toUpperCase()}
+                                </span>
+                                <span>{ms.member_name}</span>
+                              </div>
+                            </td>
+
+                            <td className="py-3 px-3.5 text-right font-medium">
+                              <span
+                                className={
+                                  isPrevPositive
+                                    ? "text-emerald-600 dark:text-emerald-400"
+                                    : "text-rose-600 dark:text-rose-400"
+                                }
+                              >
+                                {formatBDT(ms.previous_balance)}
                               </span>
-                              <span>{ms.member_name}</span>
-                            </div>
-                          </td>
+                            </td>
 
-                          <td className="py-3 px-3.5 text-right font-medium">
+                            <td className="py-3 px-3.5 text-center">
+                              <span className="font-semibold text-foreground">{ms.period_meals}</span>
+                              <span className="text-[10px] text-muted-foreground block">
+                                (L:{ms.period_lunch} D:{ms.period_dinner})
+                              </span>
+                            </td>
+
+                            <td className="py-3 px-3.5 text-right font-semibold text-foreground">
+                              {formatBDT(ms.period_cost)}
+                            </td>
+
+                            <td className="py-3 px-3.5 text-right font-bold text-emerald-600 dark:text-emerald-400">
+                              +{formatBDT(ms.period_deposit)}
+                            </td>
+
+                            <td className="py-3 px-3.5 text-right font-medium">
+                              <span
+                                className={
+                                  ms.period_net >= 0
+                                    ? "text-emerald-600 dark:text-emerald-400"
+                                    : "text-rose-600 dark:text-rose-400"
+                                }
+                              >
+                                {ms.period_net >= 0 ? "+" : ""}
+                                {formatBDT(ms.period_net)}
+                              </span>
+                            </td>
+
+                            <td className="py-3 px-3.5 text-right font-extrabold text-sm">
+                              <span
+                                className={
+                                  isClosingPositive
+                                    ? "text-emerald-600 dark:text-emerald-400"
+                                    : "text-rose-600 dark:text-rose-400"
+                                }
+                              >
+                                {formatBDT(ms.closing_balance)}
+                              </span>
+                            </td>
+
+                            <td className="py-3 px-3.5 text-center">
+                              <Badge
+                                variant={isClosingPositive ? "success" : "destructive"}
+                                className="text-[10px] px-2 py-0.5"
+                              >
+                                {isClosingPositive ? "Advance" : "Due"}
+                              </Badge>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Phone Card View */}
+                <div className="sm:hidden space-y-2.5">
+                  {report.memberStatements.map((ms) => {
+                    const isClosingPositive = ms.closing_balance >= 0;
+                    const isPrevPositive = ms.previous_balance >= 0;
+
+                    return (
+                      <div
+                        key={ms.member_id}
+                        className="p-3.5 rounded-xl border border-border bg-card shadow-2xs space-y-2.5"
+                      >
+                        <div className="flex items-center justify-between border-b border-border/40 pb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="h-7 w-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0">
+                              {ms.member_name.slice(0, 2).toUpperCase()}
+                            </span>
+                            <span className="font-bold text-sm text-foreground">{ms.member_name}</span>
+                          </div>
+                          <Badge
+                            variant={isClosingPositive ? "success" : "destructive"}
+                            className="text-[10px] px-2 py-0.5"
+                          >
+                            {isClosingPositive ? "Advance" : "Due"}
+                          </Badge>
+                        </div>
+
+                        {/* 4-Field Grid Breakdown */}
+                        <div className="grid grid-cols-2 gap-2 p-2 rounded-lg bg-muted/40 text-xs border border-border/30">
+                          <div>
+                            <span className="text-[10px] text-muted-foreground block">Previous Bal (B/F)</span>
                             <span
-                              className={
-                                isPrevPositive
-                                  ? "text-emerald-600 dark:text-emerald-400"
-                                  : "text-rose-600 dark:text-rose-400"
-                              }
+                              className={`font-semibold ${
+                                isPrevPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600"
+                              }`}
                             >
                               {formatBDT(ms.previous_balance)}
                             </span>
-                          </td>
-
-                          <td className="py-3 px-3.5 text-center">
-                            <span className="font-semibold text-foreground">{ms.period_meals}</span>
-                            <span className="text-[10px] text-muted-foreground block">
-                              (L:{ms.period_lunch} D:{ms.period_dinner})
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-muted-foreground block">Period Meals</span>
+                            <span className="font-semibold text-foreground">
+                              {ms.period_meals} ({formatBDT(ms.period_cost)})
                             </span>
-                          </td>
-
-                          <td className="py-3 px-3.5 text-right font-semibold text-foreground">
-                            {formatBDT(ms.period_cost)}
-                          </td>
-
-                          <td className="py-3 px-3.5 text-right font-bold text-emerald-600 dark:text-emerald-400">
-                            +{formatBDT(ms.period_deposit)}
-                          </td>
-
-                          <td className="py-3 px-3.5 text-right font-medium">
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-muted-foreground block">Period Paid</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                              +{formatBDT(ms.period_deposit)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-muted-foreground block">Period Net</span>
                             <span
-                              className={
-                                ms.period_net >= 0
-                                  ? "text-emerald-600 dark:text-emerald-400"
-                                  : "text-rose-600 dark:text-rose-400"
-                              }
+                              className={`font-semibold ${
+                                ms.period_net >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600"
+                              }`}
                             >
                               {ms.period_net >= 0 ? "+" : ""}
                               {formatBDT(ms.period_net)}
                             </span>
-                          </td>
+                          </div>
+                        </div>
 
-                          <td className="py-3 px-3.5 text-right font-extrabold text-sm">
-                            <span
-                              className={
-                                isClosingPositive
-                                  ? "text-emerald-600 dark:text-emerald-400"
-                                  : "text-rose-600 dark:text-rose-400"
-                              }
-                            >
-                              {formatBDT(ms.closing_balance)}
-                            </span>
-                          </td>
-
-                          <td className="py-3 px-3.5 text-center">
-                            <Badge
-                              variant={isClosingPositive ? "success" : "destructive"}
-                              className="text-[10px] px-2 py-0.5"
-                            >
-                              {isClosingPositive ? "Advance" : "Due"}
-                            </Badge>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                        {/* Closing Balance Highlight */}
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="text-xs font-medium text-muted-foreground">Closing Net Balance</span>
+                          <span
+                            className={`font-extrabold text-sm ${
+                              isClosingPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600"
+                            }`}
+                          >
+                            {formatBDT(ms.closing_balance)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </CardContent>
