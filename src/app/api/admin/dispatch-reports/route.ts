@@ -3,6 +3,7 @@ import { createClient as createServerClient } from "@/lib/supabase/server";
 import { getCurrentUserProfile, updateSettings } from "@/lib/services";
 import {
   renderMemberStatementHtml,
+  renderMemberStatementText,
   getDayName,
   formatReadableDate,
   formatMonthYearBangla,
@@ -117,10 +118,10 @@ export async function POST(req: Request) {
 
     // Action B: Send Test Email via Google Apps Script (MailApp)
     if (action === "test_preview") {
-      const recipient = (targetEmail || "mdmostofarahmantuhin2001@gmail.com").trim();
+      const recipient = (targetEmail || callerProfile.email || "mdmostofarahmantuhin2001@gmail.com").trim();
 
-      const testHtml = renderMemberStatementHtml({
-        periodType: "week",
+      const testData = {
+        periodType: "week" as const,
         periodTitle: "সাপ্তাহিক মিল ও ব্যালেন্স বিবরণী [টেস্ট]",
         periodSubtitle: "সাপ্তাহিক মিল ও ব্যালেন্স বিবরণী (Test Preview)",
         startDate: getTodayInDhaka(),
@@ -144,7 +145,10 @@ export async function POST(req: Request) {
         lifetimeCost: 1200,
         currentBalance: 800,
         appName: "Mill Manager [TEST PREVIEW]",
-      });
+      };
+
+      const testHtml = renderMemberStatementHtml(testData);
+      const testText = renderMemberStatementText(testData);
 
       const gasRes = await fetch(GAS_WEBAPP_URL, {
         method: "POST",
@@ -154,6 +158,7 @@ export async function POST(req: Request) {
           action: "send_single_email",
           to: recipient,
           subject: `[Mill Manager TEST] Email Delivery Verification: ${getTodayInDhaka()}`,
+          body: testText,
           htmlBody: testHtml,
           senderName: "Mill Manager System",
         }),
@@ -180,7 +185,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         success: isSent,
         message: isSent
-          ? `Test email dispatched directly to ${recipient} via Gmail.`
+          ? `Test email dispatched to ${recipient} via Gmail! If not visible in Inbox, please check the Spam or Promotions folder.`
           : `Failed to deliver test email: ${gasData.error || "GAS error"}`,
         gasResult: gasData,
       });
@@ -207,13 +212,18 @@ export async function POST(req: Request) {
 
       const member = memberRes.data;
       const settings = settingsRes.data || { app_name: "Mill Manager" };
-      const recipientEmail = (member.email || "").trim();
+      const recipientEmail = (targetEmail || member.email || "").trim();
 
       if (!previewOnly && !recipientEmail) {
         return NextResponse.json(
-          { error: `Member "${member.name}" does not have an email address configured.` },
+          { error: `Member "${member.name}" does not have an email address configured. Please provide an email address.` },
           { status: 400 }
         );
+      }
+
+      // If a new or updated email was provided for the member, persist it so future dispatches work seamlessly
+      if (targetEmail && targetEmail.trim() !== (member.email || "").trim()) {
+        await supabase.from("members").update({ email: targetEmail.trim() }).eq("id", member.id);
       }
 
       const meals = mealsRes.data || [];
@@ -360,8 +370,8 @@ export async function POST(req: Request) {
         subject = `[${settings.app_name || "Mill Manager"}] মেস হিসাব বিবরণী: ${formatReadableDate(startDate)} - ${formatReadableDate(endDate)} (${member.name})`;
       }
 
-      // Generate HTML with initial / previous balance support
-      const htmlBody = renderMemberStatementHtml({
+      // Generate HTML & Plain Text with initial / previous balance support
+      const statementParams = {
         periodType: resolvedType,
         periodTitle,
         periodSubtitle,
@@ -378,7 +388,10 @@ export async function POST(req: Request) {
         lifetimeCost,
         currentBalance,
         appName: settings.app_name || "Mill Manager",
-      });
+      };
+
+      const htmlBody = renderMemberStatementHtml(statementParams);
+      const textBody = renderMemberStatementText(statementParams);
 
       // If user only requested a preview, return without dispatching
       if (previewOnly) {
@@ -398,6 +411,7 @@ export async function POST(req: Request) {
             initialBalance,
             currentBalance,
             htmlBody,
+            textBody,
           },
         });
       }
@@ -411,6 +425,7 @@ export async function POST(req: Request) {
           action: "send_single_email",
           to: recipientEmail,
           subject,
+          body: textBody,
           htmlBody,
           senderName: settings.app_name || "Mill Management System",
         }),
@@ -448,7 +463,7 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         success: true,
-        message: `Statement for ${member.name} (${recipientEmail}) sent successfully via Gmail!`,
+        message: `Statement for ${member.name} delivered to ${recipientEmail} via Gmail! If not visible in Inbox, please check Spam / Promotions folder.`,
         summary: {
           memberName: member.name,
           recipientEmail,
@@ -466,13 +481,16 @@ export async function POST(req: Request) {
 
     // Action D: Prepare and dispatch weekly reports to all members & viewer
     if (action === "manual_dispatch") {
+      // For manual admin button clicks, default force to true so duplicate suppression does not silently swallow the send
+      const forceDispatch = force !== undefined ? Boolean(force) : true;
+
       const gasRes = await fetch(GAS_WEBAPP_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           secret: REPORT_SHARED_SECRET,
           action: "send_weekly",
-          force: Boolean(force),
+          force: forceDispatch,
         }),
         redirect: "follow",
       });
@@ -484,10 +502,20 @@ export async function POST(req: Request) {
       }
 
       const result = gasData.result || {};
+      const sentCount = result.sentCount ?? 0;
+      const skippedCount = result.skippedCount ?? 0;
+      const failedCount = result.failedCount ?? 0;
+
+      let message = `Report dispatch completed: ${sentCount} sent, ${skippedCount} skipped, ${failedCount} failed.`;
+      if (sentCount > 0) {
+        message += " If not visible in Inbox, please check Spam / Promotions folder.";
+      } else if (skippedCount > 0) {
+        message += " (Reports were skipped as duplicates because they were already sent for this period. Use 'Force Re-send' to send them again).";
+      }
 
       return NextResponse.json({
         success: true,
-        message: `Report dispatch completed: ${result.sentCount ?? 0} sent, ${result.skippedCount ?? 0} skipped, ${result.failedCount ?? 0} failed.`,
+        message,
         result,
       });
     }

@@ -46,10 +46,13 @@ export default function EmailReportsPage() {
   // Manual trigger states
   const [isDispatching, setIsDispatching] = React.useState(false);
   const [isTesting, setIsTesting] = React.useState(false);
+  const [testEmail, setTestEmail] = React.useState<string>("mostofarahmantuhin2006@gmail.com");
   const [showConfirmDispatch, setShowConfirmDispatch] = React.useState(false);
+  const [forceReSend, setForceReSend] = React.useState<boolean>(true);
 
   // On-demand single member statement dispatch state
   const [selectedMemberId, setSelectedMemberId] = React.useState<string>("");
+  const [singleTargetEmail, setSingleTargetEmail] = React.useState<string>("");
   const [singlePreset, setSinglePreset] = React.useState<DatePreset | "custom" | "month">("month");
   const [singleMonth, setSingleMonth] = React.useState<number>(() => {
     const today = new Date();
@@ -92,8 +95,9 @@ export default function EmailReportsPage() {
       return;
     }
     const targetM = members.find((m) => m.id === selectedMemberId);
-    if (!targetM?.email?.trim()) {
-      toast.error(`Member "${targetM?.name}" does not have an email address configured.`);
+    const destEmail = singleTargetEmail.trim() || targetM?.email?.trim() || "";
+    if (!destEmail) {
+      toast.error(`Please enter a valid recipient email address for ${targetM?.name || "this member"}.`);
       return;
     }
 
@@ -103,6 +107,7 @@ export default function EmailReportsPage() {
         action: "single_member_statement",
         memberId: selectedMemberId,
         periodType: singlePreset,
+        targetEmail: destEmail,
       };
 
       if (singlePreset === "month") {
@@ -124,7 +129,9 @@ export default function EmailReportsPage() {
         throw new Error(data.error || "Failed to dispatch statement email");
       }
 
-      toast.success(`Statement email dispatched to ${targetM.name} (${targetM.email})!`);
+      toast.success(
+        data.message || `Statement email delivered to ${targetM?.name} (${destEmail})! If not in Inbox, check Spam / Promotions.`
+      );
       loadData();
     } catch (err: unknown) {
       toast.error("Failed to send statement email: " + (err instanceof Error ? err.message : ""));
@@ -256,6 +263,7 @@ export default function EmailReportsPage() {
 
   // Send Test Preview Email
   const handleSendTestEmail = async () => {
+    const target = testEmail.trim() || "mostofarahmantuhin2006@gmail.com";
     try {
       setIsTesting(true);
       const res = await fetch("/api/admin/dispatch-reports", {
@@ -263,7 +271,7 @@ export default function EmailReportsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "test_preview",
-          targetEmail: "mdmostofarahmantuhin2001@gmail.com",
+          targetEmail: target,
         }),
       });
 
@@ -272,7 +280,10 @@ export default function EmailReportsPage() {
         throw new Error(data.error || "Failed to generate test email");
       }
 
-      toast.success("Test preview generated! Check your Gmail (mdmostofarahmantuhin2001@gmail.com).");
+      toast.success(
+        data.message || `Test preview sent to ${target}! Please check Inbox (and Spam / Promotions folder).`
+      );
+      loadData();
     } catch (err: unknown) {
       toast.error("Test email failed: " + (err instanceof Error ? err.message : ""));
     } finally {
@@ -289,7 +300,10 @@ export default function EmailReportsPage() {
       const res = await fetch("/api/admin/dispatch-reports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "manual_dispatch" }),
+        body: JSON.stringify({
+          action: "manual_dispatch",
+          force: forceReSend,
+        }),
       });
 
       const data = await res.json();
@@ -297,7 +311,7 @@ export default function EmailReportsPage() {
         throw new Error(data.error || "Failed to trigger dispatch");
       }
 
-      toast.success(`Reports prepared for period ${data.period?.startDate} to ${data.period?.endDate}.`);
+      toast.success(data.message || `Reports dispatched successfully!`);
       loadData();
     } catch (err: unknown) {
       toast.error("Dispatch failed: " + (err instanceof Error ? err.message : ""));
@@ -513,6 +527,13 @@ export default function EmailReportsPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <Input
+                type="email"
+                placeholder="Enter test email..."
+                value={testEmail}
+                onChange={(e) => setTestEmail(e.target.value)}
+                className="h-8 text-xs w-48 sm:w-56"
+              />
               <Button
                 variant="outline"
                 size="sm"
@@ -559,7 +580,12 @@ export default function EmailReportsPage() {
                 <select
                   id="single-member-select"
                   value={selectedMemberId}
-                  onChange={(e) => setSelectedMemberId(e.target.value)}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setSelectedMemberId(id);
+                    const m = members.find((x) => x.id === id);
+                    setSingleTargetEmail(m?.email || "");
+                  }}
                   className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   required
                 >
@@ -570,6 +596,24 @@ export default function EmailReportsPage() {
                     </option>
                   ))}
                 </select>
+
+                <div className="pt-2 space-y-1">
+                  <Label htmlFor="single-target-email" className="text-[11px] font-semibold text-muted-foreground">
+                    Recipient Email Address (প্রাপকের ইমেইল):
+                  </Label>
+                  <Input
+                    id="single-target-email"
+                    type="email"
+                    placeholder="member@gmail.com"
+                    value={singleTargetEmail}
+                    onChange={(e) => setSingleTargetEmail(e.target.value)}
+                    className="h-8 text-xs"
+                    required
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    Gmail MailApp দিয়ে সরাসরি প্রেরিত হবে। ইনবক্সে না পেলে Spam / Promotions ফোল্ডার চেক করুন।
+                  </p>
+                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -914,6 +958,19 @@ export default function EmailReportsPage() {
                 <p>
                   Each member will receive their personalized weekly meal breakdown, weekly deposits, and current net balance in an HTML email.
                 </p>
+              </div>
+
+              <div className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/40 border border-border">
+                <input
+                  type="checkbox"
+                  id="force-resend"
+                  checked={forceReSend}
+                  onChange={(e) => setForceReSend(e.target.checked)}
+                  className="rounded border-input text-primary focus:ring-primary h-4 w-4 cursor-pointer"
+                />
+                <label htmlFor="force-resend" className="text-xs text-foreground cursor-pointer select-none">
+                  Force re-send to all recipients (এমনকি পূর্বে পাঠানো হয়ে থাকলেও আবার পাঠান)
+                </label>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">

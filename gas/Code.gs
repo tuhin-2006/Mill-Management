@@ -173,9 +173,11 @@ function sendWeeklyReports(isManualRun, forceSend) {
     try {
       Logger.log("📧 Sending report to " + recipientType + " (" + memberName + ") <" + recipientEmail + ">...");
       
+      var textBody = report.textBody || report.body || "Your Mill Management Statement is attached in HTML.";
       MailApp.sendEmail({
         to: recipientEmail,
         subject: report.subject,
+        body: textBody,
         htmlBody: report.htmlBody,
         name: "Mill Management System",
       });
@@ -310,9 +312,11 @@ function sendTestEmail(overrideEmail) {
   for (var i = 0; i < reports.length; i++) {
     var report = reports[i];
     Logger.log("Dispatching test sample: " + report.subject);
+    var textBody = report.textBody || report.body || "This is a test preview from Mill Management System.";
     MailApp.sendEmail({
       to: targetEmail,
       subject: report.subject,
+      body: textBody,
       htmlBody: report.htmlBody,
       name: "Mill Manager [TEST]",
     });
@@ -424,13 +428,16 @@ function doPost(e) {
       if (!body.to || !body.subject || !body.htmlBody) {
         throw new Error("Missing required fields (to, subject, or htmlBody) in payload");
       }
+      var targetTo = String(body.to).trim();
+      var textBody = body.body || body.textBody || "Your Mill Management Statement is attached in HTML.";
       MailApp.sendEmail({
-        to: body.to,
+        to: targetTo,
         subject: body.subject,
+        body: textBody,
         htmlBody: body.htmlBody,
         name: body.senderName || "Mill Management System",
       });
-      result = { success: true, action: "send_single_email", recipient: body.to };
+      result = { success: true, action: "send_single_email", recipient: targetTo };
     } else {
       var force = Boolean(body.force);
       result = sendWeeklyReports(true, force);

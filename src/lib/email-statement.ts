@@ -307,3 +307,78 @@ export function renderMemberStatementHtml(data: StatementData): string {
 </body>
 </html>`;
 }
+
+/**
+ * Generate clean, readable plain-text fallback for a Member Statement
+ * Essential for spam filter bypass and low-bandwidth email clients
+ */
+export function renderMemberStatementText(data: StatementData): string {
+  const isAdvance = data.currentBalance >= 0;
+  const statusLabel = isAdvance ? "Advance (জমা আছে)" : "Due (বকেয়া আছে)";
+
+  const lines: string[] = [
+    `============================================================`,
+    `               ${(data.appName || "Mill Manager").toUpperCase()} - STATEMENT`,
+    `============================================================`,
+    ``,
+    `আসসালামু আলাইকুম, ${data.memberName}`,
+    `বিবরণী: ${data.periodSubtitle}`,
+    `হিসাবের সময়কাল: ${formatReadableDate(data.startDate)} থেকে ${formatReadableDate(data.endDate)}`,
+    ``,
+    `------------------------------------------------------------`,
+    `[বর্তমান নিট ব্যালেন্স / CURRENT NET BALANCE]`,
+    `>> ${formatBDT(data.currentBalance)} (${statusLabel})`,
+    `------------------------------------------------------------`,
+    ``,
+    `[আর্থিক সারসংক্ষেপ / FINANCIAL SUMMARY]`,
+  ];
+
+  if (data.initialBalance !== undefined && data.initialBalance !== 0) {
+    lines.push(`- পূর্বের বকেয়া / প্রারম্ভিক ব্যালেন্স: ${formatBDT(data.initialBalance)}`);
+  }
+  lines.push(`- এ সময়ের মোট মিল: ${data.totalPeriodMeals}`);
+  lines.push(`- এ সময়ের মিল খরচ: ${formatBDT(data.totalPeriodCost)}`);
+  lines.push(`- এ সময়ের মোট জমা: ${formatBDT(data.totalPeriodDeposits)}`);
+  lines.push(`- আজীবনের মোট জমা: ${formatBDT(data.lifetimeDeposits)}`);
+  lines.push(`- আজীবনের মোট মিল খরচ: ${formatBDT(data.lifetimeCost)}`);
+  lines.push(``);
+
+  const displayRows =
+    data.dailyBreakdown.length > 35
+      ? data.dailyBreakdown.filter((r) => r.totalMeals > 0)
+      : data.dailyBreakdown;
+
+  if (displayRows.length > 0) {
+    lines.push(`------------------------------------------------------------`);
+    lines.push(`[দৈনিক মিলের বিবরণী / DAILY BREAKDOWN]`);
+    lines.push(`তারিখ         | বার        | দুপুর | রাত | মোট | খরচ`);
+    lines.push(`------------- | ---------- | ---- | --- | --- | --------`);
+    for (const r of displayRows) {
+      const dateStr = formatReadableDate(r.date).padEnd(13, " ");
+      const dayBn = (DAYS_BN[r.dayName] || r.dayName).padEnd(10, " ");
+      const lunch = String(r.lunch > 0 ? r.lunch : "-").padStart(4, " ");
+      const dinner = String(r.dayName === "Friday" ? "X" : r.dinner > 0 ? r.dinner : "-").padStart(3, " ");
+      const total = String(r.totalMeals).padStart(3, " ");
+      const cost = formatBDT(r.cost).padStart(8, " ");
+      lines.push(`${dateStr} | ${dayBn} | ${lunch} | ${dinner} | ${total} | ${cost}`);
+    }
+    lines.push(`------------- | ---------- | ---- | --- | --- | --------`);
+    lines.push(`মোট মিল: ${data.totalPeriodMeals} | মোট খরচ: ${formatBDT(data.totalPeriodCost)}`);
+    lines.push(``);
+  }
+
+  lines.push(`------------------------------------------------------------`);
+  lines.push(`[হিসাব সমন্বয় সূত্র / RECONCILIATION FORMULA]`);
+  if (data.initialBalance !== undefined && data.initialBalance !== 0) {
+    lines.push(`পূর্বের ব্যালেন্স (${formatBDT(data.initialBalance)}) + মোট জমা (${formatBDT(data.lifetimeDeposits)}) - মোট খরচ (${formatBDT(data.lifetimeCost)}) = বর্তমান নিট ব্যালেন্স (${formatBDT(data.currentBalance)})`);
+  } else {
+    lines.push(`মোট জমা (${formatBDT(data.lifetimeDeposits)}) - মোট খরচ (${formatBDT(data.lifetimeCost)}) = বর্তমান নিট ব্যালেন্স (${formatBDT(data.currentBalance)})`);
+  }
+  lines.push(``);
+  lines.push(`============================================================`);
+  lines.push(`This is an official automated notification from ${data.appName || "Mill Manager"}.`);
+  lines.push(`If you have any questions or meal discrepancies, contact your Mess Manager.`);
+  lines.push(`============================================================`);
+
+  return lines.join("\n");
+}

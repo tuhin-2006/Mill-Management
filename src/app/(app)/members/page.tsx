@@ -149,6 +149,7 @@ export default function MembersPage() {
 
   // Modal: Send Statement Email (Full Statement, Monthly, Weekly)
   const [stmtMember, setStmtMember] = React.useState<Member | null>(null);
+  const [stmtEmail, setStmtEmail] = React.useState<string>("");
   const [stmtType, setStmtType] = React.useState<"all" | "month" | "week" | "custom">("month");
   const [selectedMonth, setSelectedMonth] = React.useState<number>(() => {
     const today = getTodayInDhaka();
@@ -314,6 +315,7 @@ export default function MembersPage() {
   // Open Statement Dispatch Modal
   const handleOpenStatementModal = (member: Member) => {
     setStmtMember(member);
+    setStmtEmail(member.email || "");
     setStmtType("month");
     const today = getTodayInDhaka();
     const [yStr, mStr] = today.split("-");
@@ -327,8 +329,9 @@ export default function MembersPage() {
   const handleSendStatement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!stmtMember) return;
-    if (!stmtMember.email?.trim()) {
-      toast.error(`Member "${stmtMember.name}" has no email configured. Edit the member to add their email address.`);
+    const targetEmail = stmtEmail.trim() || (stmtMember.email || "").trim();
+    if (!targetEmail) {
+      toast.error(`Please provide a recipient email address for ${stmtMember.name}.`);
       return;
     }
 
@@ -338,6 +341,7 @@ export default function MembersPage() {
         action: "single_member_statement",
         memberId: stmtMember.id,
         periodType: stmtType,
+        targetEmail,
       };
 
       if (stmtType === "month") {
@@ -359,7 +363,13 @@ export default function MembersPage() {
         throw new Error(data.error || "Failed to dispatch statement email");
       }
 
-      toast.success(data.message || `Statement email delivered to ${stmtMember.name}!`);
+      toast.success(
+        data.message || `Statement email delivered to ${stmtMember.name} (${targetEmail})! If not in Inbox, check Spam / Promotions.`
+      );
+      // Synchronize local member state with saved email
+      setMembers((prev) =>
+        prev.map((m) => (m.id === stmtMember.id ? { ...m, email: targetEmail } : m))
+      );
       setStmtMember(null);
     } catch (err: unknown) {
       toast.error("Failed to send statement email: " + (err instanceof Error ? err.message : ""));
@@ -1361,16 +1371,26 @@ export default function MembersPage() {
             </CardHeader>
 
             <CardContent className="pt-4 space-y-4">
-              {!stmtMember.email && (
-                <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-xs text-destructive flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>
-                    This member has no email address configured. Please edit the member and set their email first.
-                  </span>
-                </div>
-              )}
-
               <form onSubmit={handleSendStatement} className="space-y-4">
+                {/* RECIPIENT EMAIL INPUT */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="stmt-email-input" className="text-xs font-semibold">
+                    Recipient Email Address (প্রাপকের ইমেইল ঠিকানা):
+                  </Label>
+                  <Input
+                    id="stmt-email-input"
+                    type="email"
+                    placeholder="member@gmail.com"
+                    value={stmtEmail}
+                    onChange={(e) => setStmtEmail(e.target.value)}
+                    className="h-9 text-xs"
+                    required
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Gmail MailApp-এর মাধ্যমে সরাসরি প্রেরিত হবে। ইনবক্সে না পেলে Spam / Promotions ফোল্ডার চেক করুন।
+                  </p>
+                </div>
+
                 {/* STATEMENT TYPE SELECTOR */}
                 <div className="space-y-1.5">
                   <Label className="text-xs font-semibold">
@@ -1520,7 +1540,7 @@ export default function MembersPage() {
                     type="submit"
                     variant="primary"
                     size="sm"
-                    disabled={!stmtMember.email || isSendingStatement}
+                    disabled={!stmtEmail.trim() || isSendingStatement}
                     isLoading={isSendingStatement}
                     className="h-9 text-xs gap-1.5"
                   >

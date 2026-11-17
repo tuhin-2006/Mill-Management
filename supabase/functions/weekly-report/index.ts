@@ -16,6 +16,7 @@ interface PreparedReport {
   member_id: string | null;
   member_name: string;
   subject: string;
+  textBody?: string;
   htmlBody: string;
   is_duplicate: boolean;
   metadata?: Record<string, unknown>;
@@ -934,12 +935,25 @@ serve(async (req: Request) => {
         currentBalance,
       });
 
+      const textBody = [
+        `============================================================`,
+        `[${(settings.app_name || "Mill Manager").toUpperCase()}] WEEKLY STATEMENT`,
+        `============================================================`,
+        `Member: ${member.name}`,
+        `Period: ${formatReadableDate(startDate!)} - ${formatReadableDate(endDate!)}`,
+        `Current Balance: ${formatBDT(currentBalance)} (${currentBalance >= 0 ? "Advance" : "Due"})`,
+        `Total Meals: ${totalWeeklyMeals} | Meal Cost: ${formatBDT(totalWeeklyCost)}`,
+        `Lifetime Deposits: ${formatBDT(lifetimeDeposits)} | Lifetime Cost: ${formatBDT(lifetimeCost)}`,
+        `============================================================`,
+      ].join("\n");
+
       preparedReports.push({
         recipient_type: "member",
         recipient_email: email,
         member_id: member.id,
         member_name: member.name,
         subject: `[${settings.app_name || "Mill Manager"}] Weekly Statement: ${formatReadableDate(startDate!)} - ${formatReadableDate(endDate!)} (${member.name})`,
+        textBody,
         htmlBody: html,
         is_duplicate: isDuplicate,
         metadata: {
@@ -1032,12 +1046,25 @@ serve(async (req: Request) => {
         activeMembersCount,
       });
 
+      const groupTextBody = [
+        `============================================================`,
+        `[${(settings.app_name || "Mill Manager").toUpperCase()}] WEEKLY GROUP LEDGER`,
+        `============================================================`,
+        `Recipient: Group Ledger Viewer`,
+        `Period: ${formatReadableDate(startDate!)} - ${formatReadableDate(endDate!)}`,
+        `Group Treasury Balance: ${formatBDT(currentGroupBalance)}`,
+        `Total Group Meals: ${totalPeriodMeals} | Meal Expenses: ${formatBDT(totalPeriodCost)}`,
+        `Total Deposits: ${formatBDT(totalPeriodDeposits)}`,
+        `============================================================`,
+      ].join("\n");
+
       preparedReports.push({
         recipient_type: "group_viewer",
         recipient_email: groupViewerEmail,
         member_id: null,
         member_name: "Group Ledger Viewer",
         subject: `[${settings.app_name || "Mill Manager"}] Weekly Group Aggregate Ledger: ${formatReadableDate(startDate!)} - ${formatReadableDate(endDate!)}`,
+        textBody: groupTextBody,
         htmlBody: groupHtml,
         is_duplicate: isDuplicate,
         metadata: {
