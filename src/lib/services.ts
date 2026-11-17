@@ -1761,6 +1761,24 @@ export async function getGroupAggregateLedger(
   const cached = getFromCache<GroupAggregateReport>(cacheKey);
   if (cached) return cached;
 
+  // On client browser, fetch from the secure server-side aggregate API endpoint
+  if (typeof window !== "undefined") {
+    try {
+      const params = new URLSearchParams();
+      if (startDate) params.set("startDate", startDate);
+      if (endDate) params.set("endDate", endDate);
+      const url = `/api/viewer/aggregate${params.toString() ? `?${params.toString()}` : ""}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = (await res.json()) as GroupAggregateReport;
+        setToCache(cacheKey, data);
+        return data;
+      }
+    } catch (e) {
+      console.warn("Could not fetch aggregate from /api/viewer/aggregate:", e);
+    }
+  }
+
   // First try the secure PostgreSQL SECURITY DEFINER function
   const { data: rpcData, error: rpcErr } = await supabase.rpc("get_group_aggregate_ledger", {
     p_start_date: startDate || null,

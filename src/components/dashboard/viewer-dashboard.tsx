@@ -350,8 +350,12 @@ export function GroupLedgerViewerDashboard({ initialReport }: ViewerDashboardPro
                 <TrendingUp className="h-3.5 w-3.5" />
               </div>
             </div>
-            <div className="text-xl sm:text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 truncate">
-              +{formatBDT(period.total_deposit)}
+            <div
+              className={`text-xl sm:text-2xl font-extrabold truncate ${
+                period.total_deposit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"
+              }`}
+            >
+              {period.total_deposit > 0 ? `+${formatBDT(period.total_deposit)}` : formatBDT(period.total_deposit)}
             </div>
             <p className="text-[11px] text-muted-foreground truncate">
               Period net: {formatBDT(period.net_flow ?? (period.total_deposit - period.total_cost))} ({report.daily_payments?.length ?? 0} payment days)
@@ -439,7 +443,6 @@ export function GroupLedgerViewerDashboard({ initialReport }: ViewerDashboardPro
                     {report.daily_rows.map((row) => {
                       const prevBal = row.previous_day_balance ?? 0;
                       const runBal = row.running_balance ?? 0;
-                      const hasDeposits = (row.total_deposit ?? 0) > 0;
 
                       return (
                         <tr key={row.meal_date} className="hover:bg-muted/30 transition-colors">
@@ -492,9 +495,13 @@ export function GroupLedgerViewerDashboard({ initialReport }: ViewerDashboardPro
                           </td>
 
                           <td className="py-3 px-3 text-right whitespace-nowrap">
-                            {hasDeposits ? (
+                            {row.total_deposit > 0 ? (
                               <span className="inline-flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
                                 +{formatBDT(row.total_deposit)}
+                              </span>
+                            ) : row.total_deposit < 0 ? (
+                              <span className="inline-flex items-center gap-1 font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-md">
+                                {formatBDT(row.total_deposit)}
                               </span>
                             ) : (
                               <span className="text-muted-foreground/50">-</span>
@@ -524,7 +531,6 @@ export function GroupLedgerViewerDashboard({ initialReport }: ViewerDashboardPro
                 {report.daily_rows.map((row) => {
                   const prevBal = row.previous_day_balance ?? 0;
                   const runBal = row.running_balance ?? 0;
-                  const hasDeposits = (row.total_deposit ?? 0) > 0;
 
                   return (
                     <div
@@ -577,12 +583,18 @@ export function GroupLedgerViewerDashboard({ initialReport }: ViewerDashboardPro
                           <span className="text-[10px] text-muted-foreground block">Payments</span>
                           <span
                             className={`font-semibold ${
-                              hasDeposits
+                              row.total_deposit > 0
                                 ? "text-emerald-600 dark:text-emerald-400"
+                                : row.total_deposit < 0
+                                ? "text-rose-600 dark:text-rose-400"
                                 : "text-muted-foreground"
                             }`}
                           >
-                            {hasDeposits ? `+${formatBDT(row.total_deposit)}` : "৳0"}
+                            {row.total_deposit > 0
+                              ? `+${formatBDT(row.total_deposit)}`
+                              : row.total_deposit < 0
+                              ? formatBDT(row.total_deposit)
+                              : "৳0"}
                           </span>
                         </div>
                       </div>

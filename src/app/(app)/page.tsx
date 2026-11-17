@@ -9,6 +9,7 @@ import { Deposit, MealEntry, GroupSummary } from "@/types";
 import { MemberDashboard } from "@/components/dashboard/member-dashboard";
 import { GroupLedgerViewerDashboard } from "@/components/dashboard/viewer-dashboard";
 import { AdminDashboard } from "@/components/dashboard/admin-dashboard";
+import { computeGroupAggregateReport } from "@/lib/aggregate-server";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -28,7 +29,7 @@ export default async function DashboardPage() {
   }
 
   if (profile?.role === "group_ledger_viewer") {
-    const aggregateReport = await getGroupAggregateLedger(supabase);
+    const aggregateReport = await computeGroupAggregateReport();
     return <GroupLedgerViewerDashboard initialReport={aggregateReport} />;
   }
 
