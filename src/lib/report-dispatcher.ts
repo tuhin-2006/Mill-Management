@@ -134,16 +134,11 @@ export async function executeWeeklyReportDispatch(
   const datesInRange = getDateRange(startDate, endDate);
 
   // 3. Load all required data in parallel
-  const [membersRes, mealsRes, depositsRes, adjustmentsRes, logsRes] = await Promise.all([
+  const [membersRes, mealsRes, depositsRes, adjustmentsRes] = await Promise.all([
     supabase.from("members").select("*").order("name", { ascending: true }),
     supabase.from("meal_entries").select("*"),
     supabase.from("deposits").select("*"),
     supabase.from("adjustments").select("*"),
-    supabase
-      .from("email_logs")
-      .select("*")
-      .eq("report_period_start", startDate)
-      .eq("report_period_end", endDate),
   ]);
 
   if (membersRes.error) {
@@ -164,7 +159,6 @@ export async function executeWeeklyReportDispatch(
     ...a,
     amount: Number(a.amount) || 0,
   }));
-  const existingLogs = logsRes.data || [];
 
   // Filter members to dispatch
   let targetMembers = allMembers.filter((m) => m.status === "active" && m.email && m.email.trim() !== "");
@@ -172,34 +166,14 @@ export async function executeWeeklyReportDispatch(
     targetMembers = targetMembers.filter((m) => m.id === options.targetMemberId);
   }
 
-  const sentLogsMap = new Map<string, boolean>();
-  for (const log of existingLogs) {
-    if (log.status === "sent") {
-      if (log.member_id) sentLogsMap.set(log.member_id, true);
-      if (log.recipient_email) sentLogsMap.set(log.recipient_email.toLowerCase(), true);
-    }
-  }
-
   const details: DispatchMemberResult[] = [];
   let sentCount = 0;
   let skippedCount = 0;
   let failedCount = 0;
 
-  // 4. Process each individual member statement
+  // 4. Process each individual member statement (Always dispatch as requested)
   for (const member of targetMembers) {
     const memberEmail = member.email.trim();
-    const alreadySent = sentLogsMap.has(member.id) || sentLogsMap.has(memberEmail.toLowerCase());
-
-    if (!isForce && alreadySent) {
-      skippedCount++;
-      details.push({
-        recipient: memberEmail,
-        name: member.name,
-        type: "member",
-        status: "skipped_duplicate",
-      });
-      continue;
-    }
 
     const memberMeals = meals.filter((m) => m.member_id === member.id);
     const memberDeposits = deposits.filter((d) => d.member_id === member.id);
@@ -390,19 +364,8 @@ export async function executeWeeklyReportDispatch(
   // 5. Process Group Ledger Viewer Aggregate Report
   const viewerEmail = (settings.group_ledger_viewer_email || "").trim();
   if (viewerEmail) {
-    const alreadySentViewer = sentLogsMap.has(viewerEmail.toLowerCase());
-
-    if (!isForce && alreadySentViewer) {
-      skippedCount++;
-      details.push({
-        recipient: viewerEmail,
-        name: "Group Ledger Viewer",
-        type: "group_viewer",
-        status: "skipped_duplicate",
-      });
-    } else {
-      // Calculate group daily breakdown
-      const dailyGroupBreakdown: GroupLedgerDailyItem[] = datesInRange.map((date) => {
+    // Calculate group daily breakdown
+    const dailyGroupBreakdown: GroupLedgerDailyItem[] = datesInRange.map((date) => {
         const dayMeals = meals.filter((m) => m.meal_date === date && m.quantity > 0);
         let lunchCount = 0;
         let dinnerCount = 0;
@@ -534,13 +497,10 @@ export async function executeWeeklyReportDispatch(
         });
       }
     }
-  }
 
-  let message = `Report dispatch completed: ${sentCount} sent, ${skippedCount} skipped, ${failedCount} failed.`;
+  let message = `Report dispatch completed: ${sentCount} sent, ${failedCount} failed.`;
   if (sentCount > 0) {
     message += " Delivered via Gmail MailApp.";
-  } else if (skippedCount > 0) {
-    message += " (Skipped as duplicates because reports were already sent for this weekly cycle).";
   }
 
   return {

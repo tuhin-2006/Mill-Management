@@ -1,0 +1,17 @@
+name: Weekly Report Scheduled Dispatch
+
+on:
+  schedule:
+    # Runs every 15 minutes on GitHub's free infrastructure
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  trigger-report-cron:
+    name: Check Schedule & Dispatch Reports
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoke Next.js Weekly Report Cron Endpoint
+        run: |
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" "https://mill-management.vercel.app/api/cron/weekly-report?secret=mill_sec_9e21a4f08c3d7b6a12e5f804")
+          echo "Endpoint response: $RESPONSE"

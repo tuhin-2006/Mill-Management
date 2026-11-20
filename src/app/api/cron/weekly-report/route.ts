@@ -92,30 +92,35 @@ async function handleCron(req: Request) {
       });
     }
 
-    // 5. Duplicate Suppression Check: Check if reports for the current weekly period were already sent
-    const period = getWeeklyPeriod();
-    const { data: existingSentLogs } = await supabase
+    // 5. Check if today's scheduled dispatch has already run on or after scheduled time
+    const todayYear = dhakaNow.getUTCFullYear();
+    const todayMonth = dhakaNow.getUTCMonth();
+    const todayDate = dhakaNow.getUTCDate();
+
+    // Scheduled time in UTC (Asia/Dhaka is UTC+6)
+    const scheduledUtcMs = Date.UTC(todayYear, todayMonth, todayDate, scheduledHour - 6, scheduledMin, 0);
+    const scheduledIsoString = new Date(scheduledUtcMs).toISOString();
+
+    const { data: alreadyDispatchedToday } = await supabase
       .from("email_logs")
       .select("id, recipient_email, recipient_type, status, created_at")
-      .eq("report_period_start", period.startDate)
-      .eq("report_period_end", period.endDate)
-      .eq("status", "sent");
+      .eq("status", "sent")
+      .gte("created_at", scheduledIsoString);
 
-    if (!isForce && existingSentLogs && existingSentLogs.length > 0) {
+    if (!isForce && alreadyDispatchedToday && alreadyDispatchedToday.length > 0) {
       return NextResponse.json({
-        status: "already_completed",
-        message: `Weekly reports for period ${period.startDate} to ${period.endDate} were already dispatched (${existingSentLogs.length} emails delivered).`,
-        period,
-        sentCount: existingSentLogs.length,
+        status: "already_completed_today",
+        message: `Today's scheduled weekly report for ${scheduledDay} at ${scheduledTimeStr} was already dispatched (${alreadyDispatchedToday.length} emails delivered).`,
         scheduledDay,
         scheduledTime: scheduledTimeStr,
         currentTimeDhaka: currentTimeFormatted,
+        sentCount: alreadyDispatchedToday.length,
       });
     }
 
-    // 6. Time has arrived and reports have not been sent yet -> DISPATCH!
+    // 6. Time has arrived and today's schedule has not been dispatched yet -> DISPATCH!
     const result = await executeWeeklyReportDispatch({
-      force: isForce,
+      force: true, // Always dispatch to all members regardless of previous week logs
       isManual: false,
       supabaseClient: supabase,
     });
