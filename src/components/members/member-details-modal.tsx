@@ -237,7 +237,29 @@ function MemberDetailsDialog({
     };
   }, [filteredMeals, filteredDeposits, openingBalanceData]);
 
-  // 5. Combined chronological ledger timeline
+  // 4b. Progressive Running Balance Map for daily meal rows
+  const mealRunningBalanceMap = React.useMemo(() => {
+    if (!data) return new Map<string, number>();
+
+    const sortedMealsAsc = [...filteredMeals].sort((a, b) => a.meal_date.localeCompare(b.meal_date));
+    const balanceMap = new Map<string, number>();
+
+    for (const m of sortedMealsAsc) {
+      const depositsUpToDate = filteredDeposits
+        .filter((d) => d.deposit_date <= m.meal_date)
+        .reduce((sum, d) => sum + d.amount, 0);
+      const mealsUpToDate = sortedMealsAsc
+        .filter((x) => x.meal_date <= m.meal_date)
+        .reduce((sum, x) => sum + x.total_cost, 0);
+
+      const running = openingBalanceData.openingBalance + depositsUpToDate - mealsUpToDate;
+      balanceMap.set(m.meal_date, running);
+    }
+
+    return balanceMap;
+  }, [data, filteredMeals, filteredDeposits, openingBalanceData.openingBalance]);
+
+  // 5. Combined chronological ledger timeline with progressive Running Balance
   const combinedTimeline = React.useMemo(() => {
     interface TimelineItem {
       id: string;
@@ -247,15 +269,16 @@ function MemberDetailsDialog({
       detail: string;
       inflow: number;
       outflow: number;
+      runningBalance: number;
     }
 
-    const items: TimelineItem[] = [];
+    const items: Omit<TimelineItem, "runningBalance">[] = [];
 
     // Add opening balance item if date filter is active and has previous balance
     if (openingBalanceData.hasOpening) {
       items.push({
         id: "opening-balance",
-        date: startDate,
+        date: startDate || "1970-01-01",
         type: "opening",
         title: "Opening Balance (পূর্বের জের)",
         detail: startDate
@@ -284,15 +307,48 @@ function MemberDetailsDialog({
         date: d.deposit_date,
         type: "deposit",
         title: `Deposit Added`,
-        detail: d.note || "No note",
+        detail: d.note || "Mess Deposit",
         inflow: d.amount,
         outflow: 0,
       });
     }
 
-    // Sort descending by date (opening balance appears at bottom if descending, or sort ascending)
-    items.sort((a, b) => b.date.localeCompare(a.date));
-    return items;
+    // Sort ascending by date to compute progressive running balance
+    items.sort((a, b) => {
+      const cmp = a.date.localeCompare(b.date);
+      if (cmp !== 0) return cmp;
+      if (a.type === "opening") return -1;
+      if (b.type === "opening") return 1;
+      if (a.type === "deposit" && b.type === "meal") return -1;
+      if (a.type === "meal" && b.type === "deposit") return 1;
+      return 0;
+    });
+
+    let running = 0;
+    const itemsWithBalance: TimelineItem[] = [];
+
+    for (const item of items) {
+      if (item.type === "opening") {
+        running = openingBalanceData.openingBalance;
+      } else {
+        running = running + item.inflow - item.outflow;
+      }
+      itemsWithBalance.push({
+        ...item,
+        runningBalance: running,
+      });
+    }
+
+    // Sort descending for display (latest activity on top)
+    itemsWithBalance.sort((a, b) => {
+      const cmp = b.date.localeCompare(a.date);
+      if (cmp !== 0) return cmp;
+      if (a.type === "opening") return 1;
+      if (b.type === "opening") return -1;
+      return 0;
+    });
+
+    return itemsWithBalance;
   }, [filteredMeals, filteredDeposits, openingBalanceData, startDate]);
 
   // CSV Statement Export
@@ -302,7 +358,7 @@ function MemberDetailsDialog({
     const rangeLabel = startDate || endDate ? `${startDate || "start"}_to_${endDate || "latest"}` : "all_time";
     const filename = `${memberName}_statement_${rangeLabel}`;
 
-    const headers = ["Date", "Type", "Details", "Inflow (Deposit)", "Outflow (Meal Cost)", "Net Impact"];
+    const headers = ["Date", "Type", "Details", "Inflow (Deposit)", "Outflow (Meal Cost)", "Net Impact", "Running Balance"];
     const rows = combinedTimeline.map((item) => [
       item.date,
       item.type === "deposit" ? "Deposit" : item.type === "opening" ? "Opening Balance" : "Meal",
@@ -310,6 +366,7 @@ function MemberDetailsDialog({
       item.inflow > 0 ? item.inflow : "",
       item.outflow > 0 ? item.outflow : "",
       item.inflow - item.outflow,
+      item.runningBalance,
     ]);
 
     downloadCSV(filename, headers, rows);
@@ -595,10 +652,36 @@ function MemberDetailsDialog({
                 </div>
               )}
 
-              {/* Dynamic Financial Metric Cards */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                {/* 1. Meals Card */}
-                <div className="p-4 rounded-xl border border-blue-500/20 bg-blue-500/5 dark:bg-blue-500/10 transition-all">
+              {/* Dynamic Financial Metric Cards (5 Core Financial Cards) */}
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
+                {/* 1. Previous / Opening Balance Card */}
+                <div className="p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 dark:bg-amber-500/10 transition-all flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                      Previous Balance
+                    </span>
+                    <div className="p-1.5 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                      <History className="h-4 w-4" />
+                    </div>
+                  </div>
+                  <div>
+                    <p
+                      className={`text-2xl font-black mt-2 tracking-tight ${
+                        openingBalanceData.openingBalance >= 0
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-rose-600 dark:text-rose-400"
+                      }`}
+                    >
+                      {formatBDT(openingBalanceData.openingBalance)}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-1 truncate">
+                      {isFiltered ? "পূর্বের জের (Before Range)" : "প্রারম্ভিক জের (Initial Balance)"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* 2. Total Meals Card */}
+                <div className="p-4 rounded-xl border border-blue-500/20 bg-blue-500/5 dark:bg-blue-500/10 transition-all flex flex-col justify-between">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
                       Total Meals
@@ -607,18 +690,20 @@ function MemberDetailsDialog({
                       <UtensilsCrossed className="h-4 w-4" />
                     </div>
                   </div>
-                  <p className="text-2xl font-black text-foreground mt-2 tracking-tight">
-                    {filteredSummary.totalMeals}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    {isFiltered
-                      ? `In filtered range (All-time: ${data.summary.total_meals})`
-                      : `${filteredMeals.length} active meal days`}
-                  </p>
+                  <div>
+                    <p className="text-2xl font-black text-foreground mt-2 tracking-tight">
+                      {filteredSummary.totalMeals}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-1 truncate">
+                      {isFiltered
+                        ? `In filtered range (All-time: ${data.summary.total_meals})`
+                        : `${filteredMeals.length} active meal days`}
+                    </p>
+                  </div>
                 </div>
 
-                {/* 2. Meal Cost Card */}
-                <div className="p-4 rounded-xl border border-rose-500/20 bg-rose-500/5 dark:bg-rose-500/10 transition-all">
+                {/* 3. Meal Cost Card */}
+                <div className="p-4 rounded-xl border border-rose-500/20 bg-rose-500/5 dark:bg-rose-500/10 transition-all flex flex-col justify-between">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-rose-700 dark:text-rose-300">
                       Total Meal Cost
@@ -627,18 +712,20 @@ function MemberDetailsDialog({
                       <Receipt className="h-4 w-4" />
                     </div>
                   </div>
-                  <p className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-2 tracking-tight">
-                    {formatBDT(filteredSummary.totalCost)}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    {isFiltered
-                      ? `Period expense (All-time: ${formatBDT(data.summary.total_cost)})`
-                      : "Total meal expenses"}
-                  </p>
+                  <div>
+                    <p className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-2 tracking-tight">
+                      {formatBDT(filteredSummary.totalCost)}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-1 truncate">
+                      {isFiltered
+                        ? `Period expense (All: ${formatBDT(data.summary.total_cost)})`
+                        : "Total meal expenses"}
+                    </p>
+                  </div>
                 </div>
 
-                {/* 3. Deposited Card */}
-                <div className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 dark:bg-emerald-500/10 transition-all">
+                {/* 4. Deposited Card */}
+                <div className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 dark:bg-emerald-500/10 transition-all flex flex-col justify-between">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
                       Total Deposited
@@ -647,19 +734,21 @@ function MemberDetailsDialog({
                       <Wallet className="h-4 w-4" />
                     </div>
                   </div>
-                  <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2 tracking-tight">
-                    {formatBDT(filteredSummary.totalDeposited)}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    {isFiltered
-                      ? `Deposited in period (${filteredDeposits.length} txns)`
-                      : `Total credited (${data.deposits.length} txns)`}
-                  </p>
+                  <div>
+                    <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2 tracking-tight">
+                      {formatBDT(filteredSummary.totalDeposited)}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-1 truncate">
+                      {isFiltered
+                        ? `Deposited (${filteredDeposits.length} txns)`
+                        : `Total credited (${data.deposits.length} txns)`}
+                    </p>
+                  </div>
                 </div>
 
-                {/* 4. Net Balance / Closing Due Card */}
+                {/* 5. Running Balance / Current Balance Card */}
                 <div
-                  className={`p-4 rounded-xl border transition-all ${
+                  className={`p-4 rounded-xl border transition-all col-span-2 sm:col-span-1 flex flex-col justify-between ${
                     (isFiltered ? filteredSummary.closingBalance : data.summary.balance) >= 0
                       ? "border-emerald-500/20 bg-emerald-500/5 dark:bg-emerald-500/10"
                       : "border-destructive/20 bg-destructive/5 dark:bg-destructive/10"
@@ -667,7 +756,7 @@ function MemberDetailsDialog({
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      {isFiltered ? "সর্বমোট চূড়ান্ত বকেয়া / ব্যালেন্স" : "Net Balance"}
+                      Running Balance
                     </span>
                     <div
                       className={`p-1.5 rounded-lg ${
@@ -679,32 +768,28 @@ function MemberDetailsDialog({
                       <Scale className="h-4 w-4" />
                     </div>
                   </div>
-                  <p
-                    className={`text-2xl font-black mt-2 tracking-tight ${
-                      (isFiltered ? filteredSummary.closingBalance : data.summary.balance) >= 0
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-destructive"
-                    }`}
-                  >
-                    {formatBDT(isFiltered ? filteredSummary.closingBalance : data.summary.balance)}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1 font-medium">
-                    {isFiltered ? (
-                      <span>
-                        {filteredSummary.closingBalance < 0
-                          ? "সর্বমোট পাওনা (Previous Due + Period Net)"
-                          : "সর্বমোট জমা (Previous Credit + Period Net)"}
-                      </span>
-                    ) : data.summary.balance >= 0 ? (
-                      <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                        <TrendingUp className="h-3 w-3" /> Advance / Credit
-                      </span>
-                    ) : (
-                      <span className="text-destructive flex items-center gap-1">
-                        <TrendingDown className="h-3 w-3" /> Payment Due
-                      </span>
-                    )}
-                  </p>
+                  <div>
+                    <p
+                      className={`text-2xl font-black mt-2 tracking-tight ${
+                        (isFiltered ? filteredSummary.closingBalance : data.summary.balance) >= 0
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-destructive"
+                      }`}
+                    >
+                      {formatBDT(isFiltered ? filteredSummary.closingBalance : data.summary.balance)}
+                    </p>
+                    <p className="text-[11px] font-semibold mt-1 truncate">
+                      {(isFiltered ? filteredSummary.closingBalance : data.summary.balance) >= 0 ? (
+                        <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3 inline" /> Advance (জমা উদ্বৃত্ত)
+                        </span>
+                      ) : (
+                        <span className="text-destructive flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3 inline" /> Due (বকেয়া পাওনা)
+                        </span>
+                      )}
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -780,7 +865,8 @@ function MemberDetailsDialog({
                             <th className="py-3 px-4 text-center">Lunch (দুপুর)</th>
                             <th className="py-3 px-4 text-center">Dinner (রাত)</th>
                             <th className="py-3 px-4 text-center">Meals</th>
-                            <th className="py-3 px-4 text-right">Total Cost</th>
+                            <th className="py-3 px-4 text-right">Meal Cost</th>
+                            <th className="py-3 px-4 text-right font-bold">Running Balance (জের)</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
@@ -822,6 +908,17 @@ function MemberDetailsDialog({
                               <td className="py-3 px-4 text-right font-bold text-rose-600 dark:text-rose-400">
                                 {formatBDT(dm.total_cost)}
                               </td>
+                              <td className="py-3 px-4 text-right font-black">
+                                <span
+                                  className={
+                                    (mealRunningBalanceMap.get(dm.meal_date) ?? 0) >= 0
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : "text-rose-600 dark:text-rose-400"
+                                  }
+                                >
+                                  {formatBDT(mealRunningBalanceMap.get(dm.meal_date) ?? 0)}
+                                </span>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -835,6 +932,15 @@ function MemberDetailsDialog({
                             </td>
                             <td className="py-3 px-4 text-right text-rose-600 dark:text-rose-400 font-black">
                               {formatBDT(filteredSummary.totalCost)}
+                            </td>
+                            <td
+                              className={`py-3 px-4 text-right font-black ${
+                                filteredSummary.closingBalance >= 0
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-rose-600 dark:text-rose-400"
+                              }`}
+                            >
+                              {formatBDT(filteredSummary.closingBalance)}
                             </td>
                           </tr>
                         </tfoot>
@@ -972,6 +1078,7 @@ function MemberDetailsDialog({
                             <th className="py-3 px-4">Description</th>
                             <th className="py-3 px-4 text-right">Inflow (+)</th>
                             <th className="py-3 px-4 text-right">Outflow (-)</th>
+                            <th className="py-3 px-4 text-right font-bold">Running Bal (জের)</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
@@ -1020,23 +1127,34 @@ function MemberDetailsDialog({
                               <td className="py-3 px-4 text-right font-bold text-rose-600 dark:text-rose-400">
                                 {item.outflow > 0 ? `-${formatBDT(item.outflow)}` : "—"}
                               </td>
+                              <td className="py-3 px-4 text-right font-black">
+                                <span
+                                  className={
+                                    item.runningBalance >= 0
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : "text-rose-600 dark:text-rose-400"
+                                  }
+                                >
+                                  {formatBDT(item.runningBalance)}
+                                </span>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
                         <tfoot className="bg-muted/40 font-bold border-t border-border">
                           <tr>
                             <td colSpan={3} className="py-3 px-4 text-foreground">
-                              {isFiltered ? "সর্বমোট চূড়ান্ত ফলাফল (Final Closing Balance):" : "Period Net Change:"}
+                              {isFiltered ? "সর্বমোট চূড়ান্ত ফলাফল (Final Closing Balance):" : "Final Running Balance:"}
                             </td>
-                            <td colSpan={2} className="py-3 px-4 text-right font-black text-sm">
+                            <td colSpan={3} className="py-3 px-4 text-right font-black text-sm">
                               <span
                                 className={
-                                  (isFiltered ? filteredSummary.closingBalance : filteredSummary.periodNet) >= 0
+                                  (isFiltered ? filteredSummary.closingBalance : data.summary.balance) >= 0
                                     ? "text-emerald-600 dark:text-emerald-400"
                                     : "text-destructive"
                                 }
                               >
-                                {formatBDT(isFiltered ? filteredSummary.closingBalance : filteredSummary.periodNet)}
+                                {formatBDT(isFiltered ? filteredSummary.closingBalance : data.summary.balance)}
                               </span>
                             </td>
                           </tr>
