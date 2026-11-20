@@ -474,6 +474,14 @@ export interface GroupLedgerDailyItem {
   totalCost: number;
 }
 
+export interface GroupDepositRecord {
+  id: string;
+  date: string;
+  memberName: string;
+  amount: number;
+  note?: string;
+}
+
 export interface GroupLedgerViewerEmailData {
   appName: string;
   startDate: string;
@@ -486,8 +494,10 @@ export interface GroupLedgerViewerEmailData {
   totalPeriodDeposits: number;
   lifetimeDeposits: number;
   lifetimeCost: number;
+  initialBalance: number;
   currentGroupBalance: number;
   activeMembersCount: number;
+  periodDepositsList?: GroupDepositRecord[];
 }
 
 export function renderGroupLedgerViewerEmailHtml(params: GroupLedgerViewerEmailData): string {
@@ -591,7 +601,8 @@ export function renderGroupLedgerViewerEmailHtml(params: GroupLedgerViewerEmailD
                     </span>
                   </td>
                   <td align="right" style="vertical-align: middle;">
-                    <div style="font-size: 11px; color: #64748b; line-height: 1.4; text-align: right;">
+                    <div style="font-size: 11px; color: #64748b; line-height: 1.5; text-align: right;">
+                      প্রারম্ভিক মোট জের: <strong>${formatBDT(params.initialBalance)}</strong><br>
                       গ্রুপের সর্বমোট জমা: <strong>${formatBDT(params.lifetimeDeposits)}</strong><br>
                       গ্রুপের সর্বমোট খরচ: <strong>${formatBDT(params.lifetimeCost)}</strong>
                     </div>
@@ -601,31 +612,38 @@ export function renderGroupLedgerViewerEmailHtml(params: GroupLedgerViewerEmailD
             </td>
           </tr>
 
-          <!-- KPI Metric Cards Grid -->
+          <!-- KPI Metric Cards Grid (4 Core Financial Cards) -->
           <tr>
             <td style="padding: 0 24px 16px 24px;">
               <table role="presentation" width="100%" cellspacing="8" cellpadding="0">
                 <tr>
-                  <td width="33%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
-                    <span style="font-size: 11px; color: #64748b; font-weight: 500;">সাপ্তাহিক মোট মিল</span>
-                    <div style="font-size: 18px; font-weight: 700; color: #0f172a; margin-top: 4px;">
+                  <td width="25%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
+                    <span style="font-size: 10px; color: #64748b; font-weight: 600; text-transform: uppercase;">প্রারম্ভিক জের</span>
+                    <div style="font-size: 16px; font-weight: 800; color: ${params.initialBalance >= 0 ? "#059669" : "#e11d48"}; margin-top: 4px;">
+                      ${formatBDT(params.initialBalance)}
+                    </div>
+                    <span style="font-size: 9px; color: #94a3b8;">${params.initialBalance < 0 ? "বকেয়া / Deficit" : "উদ্বৃত্ত / Surplus"}</span>
+                  </td>
+                  <td width="25%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
+                    <span style="font-size: 10px; color: #64748b; font-weight: 600; text-transform: uppercase;">সাপ্তাহিক মিল</span>
+                    <div style="font-size: 16px; font-weight: 800; color: #0f172a; margin-top: 4px;">
                       ${params.totalPeriodMeals}
                     </div>
-                    <span style="font-size: 10px; color: #94a3b8;">${params.totalPeriodLunch} দুপুর / ${params.totalPeriodDinner} রাত</span>
+                    <span style="font-size: 9px; color: #94a3b8;">${params.totalPeriodLunch} দু. / ${params.totalPeriodDinner} রাত</span>
                   </td>
-                  <td width="33%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
-                    <span style="font-size: 11px; color: #64748b; font-weight: 500;">সাপ্তাহিক মোট খরচ</span>
-                    <div style="font-size: 18px; font-weight: 700; color: #0f172a; margin-top: 4px;">
+                  <td width="25%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
+                    <span style="font-size: 10px; color: #64748b; font-weight: 600; text-transform: uppercase;">সাপ্তাহিক খরচ</span>
+                    <div style="font-size: 16px; font-weight: 800; color: #e11d48; margin-top: 4px;">
                       ${formatBDT(params.totalPeriodCost)}
                     </div>
-                    <span style="font-size: 10px; color: #94a3b8;">Mess Meal Expense</span>
+                    <span style="font-size: 9px; color: #94a3b8;">Meal Cost</span>
                   </td>
-                  <td width="33%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
-                    <span style="font-size: 11px; color: #64748b; font-weight: 500;">সাপ্তাহিক সংগৃহীত জমা</span>
-                    <div style="font-size: 18px; font-weight: 700; color: #059669; margin-top: 4px;">
+                  <td width="25%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
+                    <span style="font-size: 10px; color: #64748b; font-weight: 600; text-transform: uppercase;">সাপ্তাহিক জমা</span>
+                    <div style="font-size: 16px; font-weight: 800; color: #059669; margin-top: 4px;">
                       ${formatBDT(params.totalPeriodDeposits)}
                     </div>
-                    <span style="font-size: 10px; color: #94a3b8;">Collected Funds</span>
+                    <span style="font-size: 9px; color: #94a3b8;">${params.periodDepositsList?.length || 0}টি পেমেন্ট</span>
                   </td>
                 </tr>
               </table>
@@ -663,14 +681,59 @@ export function renderGroupLedgerViewerEmailHtml(params: GroupLedgerViewerEmailD
             </td>
           </tr>
 
+          <!-- Payment & Deposit Records Section -->
+          <tr>
+            <td style="padding: 16px 24px 8px 24px;">
+              <h3 style="margin: 0 0 10px 0; font-size: 14px; font-weight: 700; color: #0f172a;">
+                সাপ্তাহিক জমার বিবরণী (Weekly Payment & Deposit Records)
+              </h3>
+              ${
+                params.periodDepositsList && params.periodDepositsList.length > 0
+                  ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+                      <thead>
+                        <tr style="background-color: #f1f5f9; text-align: left;">
+                          <th style="padding: 10px 12px; font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase;">তারিখ (Date)</th>
+                          <th style="padding: 10px 12px; font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase;">সদস্য (Member)</th>
+                          <th style="padding: 10px 12px; font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase;">নোট / বিবরণ</th>
+                          <th style="padding: 10px 12px; font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; text-align: right;">জমা পরিমাণ (BDT)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${params.periodDepositsList
+                          .map(
+                            (dep) => `
+                          <tr style="border-bottom: 1px solid #f1f5f9;">
+                            <td style="padding: 10px 12px; font-size: 13px; color: #1e293b; font-weight: 500;">${formatReadableDate(dep.date)}</td>
+                            <td style="padding: 10px 12px; font-size: 13px; color: #0f172a; font-weight: 600;">${dep.memberName}</td>
+                            <td style="padding: 10px 12px; font-size: 12px; color: #64748b;">${dep.note || "Regular Deposit"}</td>
+                            <td style="padding: 10px 12px; font-size: 13px; color: #059669; font-weight: 700; text-align: right;">+${formatBDT(dep.amount)}</td>
+                          </tr>
+                        `
+                          )
+                          .join("")}
+                      </tbody>
+                      <tfoot>
+                        <tr style="background-color: #f8fafc; font-weight: 700; border-top: 2px solid #e2e8f0;">
+                          <td colspan="3" style="padding: 12px; font-size: 13px; color: #0f172a;">মোট সংগৃহীত জমা (Total Deposited)</td>
+                          <td style="padding: 12px; font-size: 13px; color: #059669; text-align: right;">+${formatBDT(params.totalPeriodDeposits)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>`
+                  : `<div style="padding: 14px; text-align: center; background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; font-size: 12px; color: #64748b;">
+                      এই সপ্তাহে কোনো সদস্যের জমা রেকর্ড করা হয়নি (No payment deposits recorded in this period).
+                    </div>`
+              }
+            </td>
+          </tr>
+
           <!-- Treasury Reconciliation Details -->
           <tr>
-            <td style="padding: 20px 24px;">
+            <td style="padding: 16px 24px;">
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 14px;">
                 <tr>
                   <td style="font-size: 12px; color: #64748b; line-height: 1.6;">
                     <strong>সম্মিলিত তহবিল হিসাব সমন্বয় (Treasury Reconciliation):</strong><br>
-                    গ্রুপের মোট সংগৃহীত জমা (${formatBDT(params.lifetimeDeposits)}) - গ্রুপের সর্বমোট মিল খরচ (${formatBDT(params.lifetimeCost)}) = অবশিষ্ট মোট তহবিল (<span style="color: ${balanceColor}; font-weight: 700;">${formatBDT(params.currentGroupBalance)}</span>).
+                    প্রারম্ভিক জের (${formatBDT(params.initialBalance)}) + মোট সংগৃহীত জমা (${formatBDT(params.lifetimeDeposits)}) - সর্বমোট মিল খরচ (${formatBDT(params.lifetimeCost)}) = অবশিষ্ট মোট তহবিল (<span style="color: ${balanceColor}; font-weight: 700;">${formatBDT(params.currentGroupBalance)}</span>).
                   </td>
                 </tr>
               </table>
@@ -712,10 +775,12 @@ export function renderGroupLedgerViewerEmailText(params: GroupLedgerViewerEmailD
     `------------------------------------------------------------`,
     `[গ্রুপের বর্তমান মোট তহবিল / GROUP TREASURY BALANCE]`,
     `>> ${formatBDT(params.currentGroupBalance)} (${balanceStatus})`,
+    `- প্রারম্ভিক মোট জের: ${formatBDT(params.initialBalance)}`,
     `- সর্বমোট সংগৃহীত জমা: ${formatBDT(params.lifetimeDeposits)}`,
     `- সর্বমোট মিল খরচ: ${formatBDT(params.lifetimeCost)}`,
     `------------------------------------------------------------`,
     `[সাপ্তাহিক গ্রুপ কার্যক্রম / WEEKLY ACTIVITY]`,
+    `- প্রারম্ভিক জের: ${formatBDT(params.initialBalance)}`,
     `- মোট মিল: ${params.totalPeriodMeals} (${params.totalPeriodLunch} Lunch / ${params.totalPeriodDinner} Dinner)`,
     `- সাপ্তাহিক মিল খরচ: ${formatBDT(params.totalPeriodCost)}`,
     `- সাপ্তাহিক সংগৃহীত জমা: ${formatBDT(params.totalPeriodDeposits)}`,
@@ -738,6 +803,29 @@ export function renderGroupLedgerViewerEmailText(params: GroupLedgerViewerEmailD
   lines.push(`------------- | ---------- | ---- | --- | --- | --------`);
   lines.push(`সাপ্তাহিক মোট: ${params.totalPeriodMeals} মিল | মোট খরচ: ${formatBDT(params.totalPeriodCost)}`);
   lines.push(``);
+
+  if (params.periodDepositsList && params.periodDepositsList.length > 0) {
+    lines.push(`------------------------------------------------------------`);
+    lines.push(`[সাপ্তাহিক জমার বিবরণী / WEEKLY PAYMENT DEPOSITS]`);
+    lines.push(`তারিখ         | সদস্য         | বিবরণ        | জমা পরিমাণ`);
+    lines.push(`------------- | ------------- | ------------ | -----------`);
+    for (const d of params.periodDepositsList) {
+      const dDate = formatReadableDate(d.date).padEnd(13, " ");
+      const dName = d.memberName.padEnd(13, " ");
+      const dNote = (d.note || "Deposit").padEnd(12, " ");
+      const dAmount = `+${formatBDT(d.amount)}`.padStart(11, " ");
+      lines.push(`${dDate} | ${dName} | ${dNote} | ${dAmount}`);
+    }
+    lines.push(`------------- | ------------- | ------------ | -----------`);
+    lines.push(`মোট সংগৃহীত জমা: +${formatBDT(params.totalPeriodDeposits)}`);
+    lines.push(``);
+  }
+
+  lines.push(`------------------------------------------------------------`);
+  lines.push(`[সম্মিলিত তহবিল হিসাব সমন্বয় / TREASURY RECONCILIATION]`);
+  lines.push(
+    `প্রারম্ভিক জের (${formatBDT(params.initialBalance)}) + মোট জমা (${formatBDT(params.lifetimeDeposits)}) - মোট খরচ (${formatBDT(params.lifetimeCost)}) = বর্তমান তহবিল (${formatBDT(params.currentGroupBalance)})`
+  );
   lines.push(`------------------------------------------------------------`);
   lines.push(`[গোপনীয়তা বিষয়ক বিজ্ঞপ্তি / PRIVACY NOTICE]`);
   lines.push(`এই রিপোর্টটি শুধুমাত্র সম্মিলিত গ্রুপ হিসাব পর্যবেক্ষণের জন্য।`);

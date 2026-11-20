@@ -507,7 +507,9 @@ function LedgerPageContent() {
               {formatBDT(report?.opening.balance ?? 0)}
             </div>
             <p className="text-[11px] text-muted-foreground truncate">
-              {!startDate
+              {selectedMemberId === "all"
+                ? "সকল সদস্যের প্রারম্ভিক জেরের সমষ্টি (Net Initial Due)"
+                : !startDate
                 ? "Starting balance / Previous due"
                 : `Cost: ${formatBDT(report?.opening.total_cost ?? 0)} • Dep: ${formatBDT(
                     report?.opening.total_deposit ?? 0

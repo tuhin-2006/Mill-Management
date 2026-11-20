@@ -392,9 +392,23 @@ export async function executeWeeklyReportDispatch(
       const totalGroupPeriodDinner = dailyGroupBreakdown.reduce((acc, r) => acc + r.dinnerCount, 0);
       const totalGroupPeriodCost = dailyGroupBreakdown.reduce((acc, r) => acc + r.totalCost, 0);
 
-      const totalGroupPeriodDeposits = deposits
-        .filter((d) => d.deposit_date >= startDate && d.deposit_date <= endDate)
-        .reduce((acc, d) => acc + d.amount, 0);
+      const memberNameMap = new Map<string, string>();
+      for (const m of allMembers) {
+        memberNameMap.set(m.id, m.name);
+      }
+
+      const periodDeposits = deposits.filter(
+        (d) => d.deposit_date >= startDate && d.deposit_date <= endDate
+      );
+      const totalGroupPeriodDeposits = periodDeposits.reduce((acc, d) => acc + d.amount, 0);
+
+      const periodDepositsList = periodDeposits.map((d) => ({
+        id: d.id,
+        date: d.deposit_date,
+        memberName: memberNameMap.get(d.member_id) || "Unknown",
+        amount: d.amount,
+        note: d.note,
+      }));
 
       const totalGroupLifetimeDeposits = deposits
         .filter((d) => d.deposit_date <= endDate)
@@ -423,8 +437,10 @@ export async function executeWeeklyReportDispatch(
         totalPeriodDeposits: totalGroupPeriodDeposits,
         lifetimeDeposits: totalGroupLifetimeDeposits,
         lifetimeCost: totalGroupLifetimeCost,
+        initialBalance: totalGroupLifetimeAdjustments,
         currentGroupBalance,
         activeMembersCount: targetMembers.length,
+        periodDepositsList,
       };
 
       const viewerHtml = renderGroupLedgerViewerEmailHtml(groupViewerData);
@@ -458,6 +474,7 @@ export async function executeWeeklyReportDispatch(
           error_message: isSent ? null : JSON.stringify(gasData),
           metadata: {
             is_weekly_batch: true,
+            initialBalance: totalGroupLifetimeAdjustments,
             currentGroupBalance,
             totalPeriodMeals: totalGroupPeriodMeals,
             totalPeriodCost: totalGroupPeriodCost,
