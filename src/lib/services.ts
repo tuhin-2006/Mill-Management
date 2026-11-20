@@ -1008,6 +1008,7 @@ export async function getMemberLedger(
     total_cost: number;
   }>;
   deposits: Deposit[];
+  adjustments?: Adjustment[];
   summary: {
     total_meals: number;
     total_cost: number;
@@ -1093,6 +1094,7 @@ export async function getMemberLedger(
     member,
     dailyMeals,
     deposits, // Strictly real monetary deposits
+    adjustments,
     summary: {
       total_meals: totalMeals,
       total_cost: totalCost,

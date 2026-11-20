@@ -356,14 +356,58 @@ function checkGmailQuota() {
 }
 
 // ==============================================================================
-// 4. AUTOMATIC TRIGGER MANAGEMENT (Friday Evening Asia/Dhaka)
+// 4. AUTOMATIC TRIGGER MANAGEMENT (Dynamic Schedule Monitor)
 // ==============================================================================
 
 /**
- * Sets up the weekly Friday evening installable trigger.
- * 
- * NOTE: As per Requirement 10, DO NOT run this function until you have approved
- * automatic sending and set AUTOMATIC_SENDING_ENABLED = true.
+ * Recommended Modern Trigger:
+ * Sets up a dynamic 15-minute monitor trigger.
+ * It periodically inspects the user-configured `weekly_report_day` and `weekly_report_time`
+ * from the Mill Manager dashboard (via /api/cron/weekly-report) and automatically dispatches
+ * exactly at the configured time (e.g., 20:00, 22:32, etc.) with zero hardcoding!
+ */
+function setupScheduledMonitorTrigger() {
+  Logger.log("=== Setting up Dynamic Schedule Monitor Trigger (Every 15 Minutes) ===");
+  removeWeeklyTrigger();
+
+  ScriptApp.newTrigger("checkAndDispatchScheduledReports")
+    .timeBased()
+    .everyMinutes(15)
+    .create();
+
+  Logger.log("✅ Dynamic monitor trigger successfully registered! It runs every 15 minutes to match web settings.");
+}
+
+/**
+ * Dynamic scheduled monitor handler.
+ * Queries Next.js /api/cron/weekly-report which verifies:
+ * 1. Whether automatic emailing is enabled
+ * 2. Whether today matches `weekly_report_day` (Asia/Dhaka)
+ * 3. Whether current time has reached `weekly_report_time`
+ * 4. Whether reports were already sent today (duplicate suppression)
+ */
+function checkAndDispatchScheduledReports() {
+  Logger.log("=== [DYNAMIC CRON CHECK] Inspecting Scheduled Time ===");
+  var props = PropertiesService.getScriptProperties();
+  var appBaseUrl = props.getProperty("APP_BASE_URL");
+  var secret = props.getProperty("REPORT_SHARED_SECRET");
+
+  if (appBaseUrl && appBaseUrl.trim() !== "") {
+    var cronUrl = appBaseUrl.replace(/\/$/, "") + "/api/cron/weekly-report?secret=" + encodeURIComponent(secret);
+    try {
+      var res = UrlFetchApp.fetch(cronUrl, { muteHttpExceptions: true });
+      Logger.log("Next.js Cron Response [" + res.getResponseCode() + "]: " + res.getContentText());
+    } catch (err) {
+      Logger.log("⚠️ Error pinging Next.js cron: " + err.toString());
+    }
+  } else {
+    // If APP_BASE_URL is not set in script properties, fallback to standard sendWeeklyReports check
+    sendWeeklyReports(false, false);
+  }
+}
+
+/**
+ * Legacy static trigger (Every Friday at 8:00 PM).
  */
 function setupWeeklyTrigger() {
   Logger.log("=== Setting up Weekly Trigger for Friday Evening ===");
@@ -387,18 +431,19 @@ function setupWeeklyTrigger() {
 }
 
 /**
- * Removes all active triggers for sendWeeklyReports.
+ * Removes all active triggers for weekly reporting and dynamic monitors.
  */
 function removeWeeklyTrigger() {
   var triggers = ScriptApp.getProjectTriggers();
   var removed = 0;
   for (var i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === "sendWeeklyReports") {
+    var fn = triggers[i].getHandlerFunction();
+    if (fn === "sendWeeklyReports" || fn === "checkAndDispatchScheduledReports") {
       ScriptApp.deleteTrigger(triggers[i]);
       removed++;
     }
   }
-  Logger.log("Removed " + removed + " existing trigger(s) for sendWeeklyReports.");
+  Logger.log("Removed " + removed + " existing trigger(s).");
 }
 
 // ==============================================================================

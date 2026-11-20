@@ -143,6 +143,13 @@ function renderMemberEmailHtml(params: {
   totalWeeklyMeals: number;
   totalWeeklyCost: number;
   weeklyDeposit: number;
+  openingBalance: number;
+  weeklyDepositsList?: Array<{
+    id?: string;
+    date: string;
+    amount: number;
+    note?: string | null;
+  }>;
   initialBalance?: number;
   lifetimeDeposits: number;
   lifetimeCost: number;
@@ -153,6 +160,9 @@ function renderMemberEmailHtml(params: {
   const balanceBg = isAdvance ? "#ecfdf5" : "#fff1f2";
   const balanceBorder = isAdvance ? "#a7f3d0" : "#fecdd3";
   const balanceBadgeText = isAdvance ? "Advance (জমা আছে)" : "Due (বকেয়া আছে)";
+
+  const isOpeningAdvance = params.openingBalance >= 0;
+  const openingColor = isOpeningAdvance ? "#059669" : "#e11d48";
 
   const rowsHtml = params.dailyBreakdown
     .map((row) => {
@@ -174,9 +184,28 @@ function renderMemberEmailHtml(params: {
     })
     .join("");
 
+  const depositsList = params.weeklyDepositsList || [];
+  const depositsRowsHtml = depositsList
+    .map((dep) => {
+      return `
+        <tr style="background-color: #ffffff; border-bottom: 1px solid #f1f5f9;">
+          <td style="padding: 10px 12px; font-size: 13px; color: #1e293b; font-weight: 500;">
+            ${formatReadableDate(dep.date)}
+          </td>
+          <td style="padding: 10px 12px; font-size: 13px; color: #64748b;">
+            ${dep.note || "নগদ জমা / Payment"}
+          </td>
+          <td style="padding: 10px 12px; font-size: 13px; color: #059669; text-align: right; font-weight: 700;">
+            +${formatBDT(dep.amount)}
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
   return `
 <!DOCTYPE html>
-<html lang="en">
+<html lang="bn">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -219,7 +248,7 @@ function renderMemberEmailHtml(params: {
                 আসসালামু আলাইকুম, <strong>${params.memberName}</strong>
               </p>
               <p style="margin: 0; font-size: 13px; color: #64748b;">
-                Reporting Period: <strong>${formatReadableDate(params.startDate)}</strong> to <strong>${formatReadableDate(params.endDate)}</strong>
+                হিসাবের সময়কাল: <strong>${formatReadableDate(params.startDate)}</strong> থেকে <strong>${formatReadableDate(params.endDate)}</strong>
               </p>
             </td>
           </tr>
@@ -231,9 +260,9 @@ function renderMemberEmailHtml(params: {
                 <tr>
                   <td>
                     <span style="font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: ${balanceColor};">
-                      বর্তমান ব্যালেন্স (Current Net Balance)
+                      বর্তমান নিট ব্যালেন্স (Current Net Balance)
                     </span>
-                    <div style="font-size: 28px; font-weight: 800; color: ${balanceColor}; margin: 4px 0 2px 0;">
+                    <div style="font-size: 30px; font-weight: 900; color: ${balanceColor}; margin: 4px 0 2px 0;">
                       ${formatBDT(params.currentBalance)}
                     </div>
                     <span style="font-size: 12px; font-weight: 600; color: ${balanceColor};">
@@ -242,9 +271,9 @@ function renderMemberEmailHtml(params: {
                   </td>
                   <td align="right" style="vertical-align: middle;">
                     <div style="font-size: 11px; color: #64748b; line-height: 1.4; text-align: right;">
-                      ${params.initialBalance !== undefined && params.initialBalance !== 0 ? `আগের / প্রারম্ভিক ব্যালেন্স: <strong style="color: ${params.initialBalance >= 0 ? "#059669" : "#e11d48"};">${formatBDT(params.initialBalance)}</strong><br>` : ""}
+                      পূর্বের ব্যালেন্স: <strong style="color: ${openingColor};">${formatBDT(params.openingBalance)}</strong><br>
                       আজীবনের মোট জমা: <strong>${formatBDT(params.lifetimeDeposits)}</strong><br>
-                      আজীবনের মোট মিল খরচ: <strong>${formatBDT(params.lifetimeCost)}</strong>
+                      আজীবনের মিল খরচ: <strong>${formatBDT(params.lifetimeCost)}</strong>
                     </div>
                   </td>
                 </tr>
@@ -252,36 +281,38 @@ function renderMemberEmailHtml(params: {
             </td>
           </tr>
 
-          <!-- KPI Metric Cards Grid -->
+          <!-- 4-Card KPI Metric Grid -->
           <tr>
             <td style="padding: 8px 24px 16px 24px;">
-              <table role="presentation" width="100%" cellspacing="8" cellpadding="0">
+              <table role="presentation" width="100%" cellspacing="6" cellpadding="0">
                 <tr>
-                  ${params.initialBalance !== undefined && params.initialBalance !== 0 ? `
-                  <td width="25%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
-                    <span style="font-size: 11px; color: #64748b; font-weight: 500;">আগের ব্যালেন্স</span>
-                    <div style="font-size: 16px; font-weight: 700; color: ${params.initialBalance >= 0 ? "#059669" : "#e11d48"}; margin-top: 4px;">
-                      ${formatBDT(params.initialBalance)}
+                  <td width="25%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; text-align: center;">
+                    <span style="font-size: 10px; color: #64748b; font-weight: 600; text-transform: uppercase;">পূর্বের ব্যালেন্স</span>
+                    <div style="font-size: 15px; font-weight: 800; color: ${openingColor}; margin-top: 4px;">
+                      ${formatBDT(params.openingBalance)}
                     </div>
+                    <span style="font-size: 9px; color: #94a3b8;">Opening</span>
                   </td>
-                  ` : ""}
-                  <td width="${params.initialBalance !== undefined && params.initialBalance !== 0 ? "25%" : "33%"}" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
-                    <span style="font-size: 11px; color: #64748b; font-weight: 500;">এ সপ্তাহের মিল</span>
-                    <div style="font-size: 18px; font-weight: 700; color: #0f172a; margin-top: 4px;">
+                  <td width="25%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; text-align: center;">
+                    <span style="font-size: 10px; color: #64748b; font-weight: 600; text-transform: uppercase;">এ সপ্তাহের মিল</span>
+                    <div style="font-size: 16px; font-weight: 800; color: #0f172a; margin-top: 4px;">
                       ${params.totalWeeklyMeals}
                     </div>
+                    <span style="font-size: 9px; color: #94a3b8;">Meals</span>
                   </td>
-                  <td width="${params.initialBalance !== undefined && params.initialBalance !== 0 ? "25%" : "33%"}" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
-                    <span style="font-size: 11px; color: #64748b; font-weight: 500;">এ সপ্তাহের খরচ</span>
-                    <div style="font-size: 18px; font-weight: 700; color: #0f172a; margin-top: 4px;">
+                  <td width="25%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; text-align: center;">
+                    <span style="font-size: 10px; color: #64748b; font-weight: 600; text-transform: uppercase;">এ সপ্তাহের খরচ</span>
+                    <div style="font-size: 16px; font-weight: 800; color: #e11d48; margin-top: 4px;">
                       ${formatBDT(params.totalWeeklyCost)}
                     </div>
+                    <span style="font-size: 9px; color: #94a3b8;">Expense</span>
                   </td>
-                  <td width="${params.initialBalance !== undefined && params.initialBalance !== 0 ? "25%" : "33%"}" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center;">
-                    <span style="font-size: 11px; color: #64748b; font-weight: 500;">এ সপ্তাহের জমা</span>
-                    <div style="font-size: 18px; font-weight: 700; color: #059669; margin-top: 4px;">
-                      ${formatBDT(params.weeklyDeposit)}
+                  <td width="25%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; text-align: center;">
+                    <span style="font-size: 10px; color: #64748b; font-weight: 600; text-transform: uppercase;">এ সপ্তাহের জমা</span>
+                    <div style="font-size: 16px; font-weight: 800; color: #059669; margin-top: 4px;">
+                      +${formatBDT(params.weeklyDeposit)}
                     </div>
+                    <span style="font-size: 9px; color: #94a3b8;">Deposit</span>
                   </td>
                 </tr>
               </table>
@@ -292,7 +323,7 @@ function renderMemberEmailHtml(params: {
           <tr>
             <td style="padding: 8px 24px;">
               <h3 style="margin: 0 0 10px 0; font-size: 14px; font-weight: 700; color: #0f172a;">
-                দৈনিক মিলের বিবরণ (Daily Meal Breakdown)
+                দৈনিক মিলের বিবরণী (Daily Meal Breakdown)
               </h3>
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
                 <thead>
@@ -319,17 +350,47 @@ function renderMemberEmailHtml(params: {
             </td>
           </tr>
 
-          <!-- Lifetime Reconciliation Breakdown -->
+          <!-- Payment & Deposit History Table -->
           <tr>
-            <td style="padding: 20px 24px;">
+            <td style="padding: 16px 24px 8px 24px;">
+              <h3 style="margin: 0 0 10px 0; font-size: 14px; font-weight: 700; color: #0f172a;">
+                পেমেন্ট ও জমার বিবরণী (Payment & Deposit History)
+              </h3>
+              ${
+                depositsList.length === 0
+                  ? `<div style="background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 14px; text-align: center; color: #64748b; font-size: 12px;">
+                      এই সপ্তাহে কোনো নগদ জমা নেই (No payments recorded in this weekly cycle).
+                    </div>`
+                  : `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+                      <thead>
+                        <tr style="background-color: #f1f5f9; text-align: left;">
+                          <th style="padding: 10px 12px; font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase;">জমার তারিখ</th>
+                          <th style="padding: 10px 12px; font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase;">বিবরণ</th>
+                          <th style="padding: 10px 12px; font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; text-align: right;">পরিমাণ (BDT)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${depositsRowsHtml}
+                      </tbody>
+                      <tfoot>
+                        <tr style="background-color: #f8fafc; font-weight: 700; border-top: 2px solid #e2e8f0;">
+                          <td colspan="2" style="padding: 10px 12px; font-size: 13px; color: #0f172a;">মোট জমা (Total Deposited)</td>
+                          <td style="padding: 10px 12px; font-size: 13px; color: #059669; text-align: right; font-weight: 800;">+${formatBDT(params.weeklyDeposit)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>`
+              }
+            </td>
+          </tr>
+
+          <!-- Financial Reconciliation Breakdown -->
+          <tr>
+            <td style="padding: 16px 24px;">
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 14px;">
                 <tr>
                   <td style="font-size: 12px; color: #64748b; line-height: 1.6;">
                     <strong>হিসাব সমন্বয় সূত্র (Reconciliation Formula):</strong><br>
-                    ${params.initialBalance !== undefined && params.initialBalance !== 0
-                      ? `আগের ব্যালেন্স (${formatBDT(params.initialBalance)}) + সর্বমোট জমা (${formatBDT(params.lifetimeDeposits)}) - সর্বমোট মিল খরচ (${formatBDT(params.lifetimeCost)}) = বর্তমান ব্যালেন্স (<span style="color: ${balanceColor}; font-weight: 700;">${formatBDT(params.currentBalance)}</span>).`
-                      : `সর্বমোট জমা (${formatBDT(params.lifetimeDeposits)}) - সর্বমোট মিল খরচ (${formatBDT(params.lifetimeCost)}) = বর্তমান ব্যালেন্স (<span style="color: ${balanceColor}; font-weight: 700;">${formatBDT(params.currentBalance)}</span>).`
-                    }
+                    পূর্বের ব্যালেন্স (${formatBDT(params.openingBalance)}) + এ সপ্তাহের জমা (+${formatBDT(params.weeklyDeposit)}) - মিল খরচ (-${formatBDT(params.totalWeeklyCost)}) = বর্তমান নিট ব্যালেন্স (<span style="color: ${balanceColor}; font-weight: 800;">${formatBDT(params.currentBalance)}</span>).
                   </td>
                 </tr>
               </table>
@@ -343,6 +404,20 @@ function renderMemberEmailHtml(params: {
                 This is an automated weekly report from <strong>${params.appName}</strong>.<br>
                 For any meal adjustments or questions, please contact the Mill Administrator.
               </p>
+              <p style="margin: 8px 0 0 0; font-size: 10px; color: #94a3b8;">
+                Generated at: ${new Date().toUTCString()} (Bangladesh Asia/Dhaka Timezone)
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+}
               <p style="margin: 8px 0 0 0; font-size: 10px; color: #94a3b8;">
                 Generated at: ${new Date().toUTCString()} (Bangladesh Asia/Dhaka Timezone)
               </p>
@@ -908,26 +983,44 @@ serve(async (req: Request) => {
       const totalWeeklyMeals = dailyBreakdown.reduce((acc, r) => acc + r.totalMeals, 0);
       const totalWeeklyCost = dailyBreakdown.reduce((acc, r) => acc + r.cost, 0);
 
-      // Weekly deposits (within startDate and endDate inclusive)
-      const weeklyDeposit = memberDeposits
-        .filter((d: any) => d.deposit_date >= startDate! && d.deposit_date <= endDate!)
+      // Initial starting balance from adjustments
+      const initialBal = memberAdjustments.reduce((acc: number, a: any) => acc + a.amount, 0);
+
+      // Previous activity strictly before startDate
+      const prevMealsCost = memberMeals
+        .filter((m: any) => m.meal_date < startDate! && m.quantity > 0)
+        .reduce((acc: number, m: any) => acc + m.quantity * m.unit_price, 0);
+
+      const prevDepositsTotal = memberDeposits
+        .filter((d: any) => d.deposit_date < startDate!)
         .reduce((acc: number, d: any) => acc + d.amount, 0);
 
-      // Lifetime financials (up to endDate) including initial balance adjustments
+      // Exact Opening Balance before the weekly cycle
+      const openingBalance = initialBal + prevDepositsTotal - prevMealsCost;
+
+      // Weekly deposits (within startDate and endDate inclusive)
+      const weeklyDeposits = memberDeposits.filter(
+        (d: any) => d.deposit_date >= startDate! && d.deposit_date <= endDate!
+      );
+      const weeklyDeposit = weeklyDeposits.reduce((acc: number, d: any) => acc + d.amount, 0);
+      const weeklyDepositsList = weeklyDeposits.map((d: any) => ({
+        id: d.id,
+        date: d.deposit_date,
+        amount: d.amount,
+        note: d.note,
+      }));
+
+      // Lifetime financials (up to endDate)
       const lifetimeDeposits = memberDeposits
         .filter((d: any) => !endDate || d.deposit_date <= endDate)
         .reduce((acc: number, d: any) => acc + d.amount, 0);
-
-      const lifetimeAdjustments = memberAdjustments
-        .filter((a: any) => !endDate || a.adjustment_date <= endDate)
-        .reduce((acc: number, a: any) => acc + a.amount, 0);
 
       const lifetimeCost = memberMeals
         .filter((m: any) => (!endDate || m.meal_date <= endDate) && m.quantity > 0)
         .reduce((acc: number, m: any) => acc + m.quantity * m.unit_price, 0);
 
-      const currentBalance = lifetimeDeposits + lifetimeAdjustments - lifetimeCost;
-      const initialBalance = lifetimeAdjustments;
+      // Net Current Balance
+      const currentBalance = openingBalance + weeklyDeposit - totalWeeklyCost;
 
       const isDuplicate = alreadySentEmails.has(email.toLowerCase()) && !force;
 
@@ -940,7 +1033,9 @@ serve(async (req: Request) => {
         totalWeeklyMeals,
         totalWeeklyCost,
         weeklyDeposit,
-        initialBalance,
+        openingBalance,
+        weeklyDepositsList,
+        initialBalance: initialBal,
         lifetimeDeposits,
         lifetimeCost,
         currentBalance,
@@ -953,7 +1048,9 @@ serve(async (req: Request) => {
         `Member: ${member.name}`,
         `Period: ${formatReadableDate(startDate!)} - ${formatReadableDate(endDate!)}`,
         `Current Balance: ${formatBDT(currentBalance)} (${currentBalance >= 0 ? "Advance" : "Due"})`,
+        `Opening Balance: ${formatBDT(openingBalance)}`,
         `Total Meals: ${totalWeeklyMeals} | Meal Cost: ${formatBDT(totalWeeklyCost)}`,
+        `Weekly Deposits: ${formatBDT(weeklyDeposit)}`,
         `Lifetime Deposits: ${formatBDT(lifetimeDeposits)} | Lifetime Cost: ${formatBDT(lifetimeCost)}`,
         `============================================================`,
       ].join("\n");

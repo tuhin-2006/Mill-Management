@@ -47,6 +47,12 @@ export interface MemberDetailData {
     deposit_date: string;
     note?: string | null;
   }>;
+  adjustments?: Array<{
+    id: string;
+    amount: number;
+    adjustment_date: string;
+    note?: string | null;
+  }>;
   summary: {
     total_meals: number;
     total_cost: number;
@@ -146,15 +152,29 @@ function MemberDetailsDialog({
     setActivePreset("all");
   };
 
-  // 1. Previous / Opening Balance (Before startDate)
+  // 1. Previous / Opening Balance (Initial balance + activity before startDate)
   const openingBalanceData = React.useMemo(() => {
-    if (!data || !startDate) {
+    const initialBal = Number(data?.summary?.initial_balance) || 0;
+
+    if (!data) {
       return {
         hasOpening: false,
+        initialBalance: 0,
         previousMealsCount: 0,
         previousMealCost: 0,
         previousDeposited: 0,
         openingBalance: 0,
+      };
+    }
+
+    if (!startDate) {
+      return {
+        hasOpening: initialBal !== 0,
+        initialBalance: initialBal,
+        previousMealsCount: 0,
+        previousMealCost: 0,
+        previousDeposited: 0,
+        openingBalance: initialBal,
       };
     }
 
@@ -164,10 +184,13 @@ function MemberDetailsDialog({
     const previousMealsCount = previousMeals.reduce((acc, m) => acc + m.total_meals, 0);
     const previousMealCost = previousMeals.reduce((acc, m) => acc + m.total_cost, 0);
     const previousDeposited = previousDeposits.reduce((acc, d) => acc + d.amount, 0);
-    const openingBalance = previousDeposited - previousMealCost;
+    
+    // Initial balance is always preserved as baseline opening balance
+    const openingBalance = initialBal + previousDeposited - previousMealCost;
 
     return {
       hasOpening: true,
+      initialBalance: initialBal,
       previousMealsCount,
       previousMealCost,
       previousDeposited,
@@ -235,7 +258,9 @@ function MemberDetailsDialog({
         date: startDate,
         type: "opening",
         title: "Opening Balance (পূর্বের জের)",
-        detail: `Balance before ${formatDate(startDate)} (Deposits: ${formatBDT(openingBalanceData.previousDeposited)}, Cost: ${formatBDT(openingBalanceData.previousMealCost)})`,
+        detail: startDate
+          ? `Balance before ${formatDate(startDate)} (Initial: ${formatBDT(openingBalanceData.initialBalance)}, Deposits: ${formatBDT(openingBalanceData.previousDeposited)}, Cost: ${formatBDT(openingBalanceData.previousMealCost)})`
+          : `Initial Opening Balance: ${formatBDT(openingBalanceData.initialBalance)}`,
         inflow: openingBalanceData.openingBalance > 0 ? openingBalanceData.openingBalance : 0,
         outflow: openingBalanceData.openingBalance < 0 ? Math.abs(openingBalanceData.openingBalance) : 0,
       });

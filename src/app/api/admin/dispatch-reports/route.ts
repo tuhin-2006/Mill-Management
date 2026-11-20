@@ -8,8 +8,10 @@ import {
   formatReadableDate,
   formatMonthYearBangla,
   StatementDailyItem,
+  StatementDepositItem,
 } from "@/lib/email-statement";
 import { formatBDT, getTodayInDhaka } from "@/lib/date";
+import { executeWeeklyReportDispatch } from "@/lib/report-dispatcher";
 
 const GAS_WEBAPP_URL =
   process.env.GAS_WEBAPP_URL ||
@@ -141,6 +143,14 @@ export async function POST(req: Request) {
         totalPeriodMeals: 2,
         totalPeriodCost: 120,
         totalPeriodDeposits: 500,
+        openingBalance: 420,
+        periodDepositsList: [
+          {
+            date: getTodayInDhaka(),
+            amount: 500,
+            note: "নমুনা জমা (Sample Deposit)",
+          },
+        ],
         lifetimeDeposits: 2000,
         lifetimeCost: 1200,
         currentBalance: 800,
@@ -333,31 +343,48 @@ export async function POST(req: Request) {
       const totalPeriodMeals = dailyBreakdown.reduce((acc, r) => acc + r.totalMeals, 0);
       const totalPeriodCost = dailyBreakdown.reduce((acc, r) => acc + r.cost, 0);
 
-      // Period deposits and adjustments
-      const totalPeriodDeposits = deposits
-        .filter((d) => (!startDate || d.deposit_date >= startDate) && (!endDate || d.deposit_date <= endDate))
+      // Period deposits list and sum
+      const periodDeposits = deposits.filter(
+        (d) => (!startDate || d.deposit_date >= startDate) && (!endDate || d.deposit_date <= endDate)
+      );
+      const totalPeriodDeposits = periodDeposits.reduce((acc, d) => acc + (Number(d.amount) || 0), 0);
+      const periodDepositsList: StatementDepositItem[] = periodDeposits.map((d) => ({
+        id: d.id,
+        date: d.deposit_date,
+        amount: Number(d.amount) || 0,
+        note: d.note,
+      }));
+
+      // Initial starting balance from adjustments
+      const initialBalance = adjustments.reduce((acc, a) => acc + (Number(a.amount) || 0), 0);
+
+      // Previous activity strictly before startDate
+      const prevMealsCost = meals
+        .filter((m) => startDate && m.meal_date < startDate && Number(m.quantity) > 0)
+        .reduce((acc, m) => acc + (Number(m.quantity) || 0) * (Number(m.unit_price) || 0), 0);
+
+      const prevDepositsTotal = deposits
+        .filter((d) => startDate && d.deposit_date < startDate)
         .reduce((acc, d) => acc + (Number(d.amount) || 0), 0);
 
-      const totalPeriodAdjustments = adjustments
-        .filter((a) => (!startDate || a.adjustment_date >= startDate) && (!endDate || a.adjustment_date <= endDate))
-        .reduce((acc, a) => acc + (Number(a.amount) || 0), 0);
+      // Exact Opening Balance
+      const openingBalance =
+        resolvedType === "all" ? initialBalance : initialBalance + prevDepositsTotal - prevMealsCost;
 
-      // Lifetime financials (up to endDate) including initial balance adjustments
+      // Lifetime financials (up to endDate)
       const lifetimeDeposits = deposits
         .filter((d) => !endDate || d.deposit_date <= endDate)
         .reduce((acc, d) => acc + (Number(d.amount) || 0), 0);
-
-      const lifetimeAdjustments = adjustments
-        .filter((a) => !endDate || a.adjustment_date <= endDate)
-        .reduce((acc, a) => acc + (Number(a.amount) || 0), 0);
 
       const lifetimeCost = meals
         .filter((m) => (!endDate || m.meal_date <= endDate) && m.quantity > 0)
         .reduce((acc, m) => acc + (Number(m.quantity) || 0) * (Number(m.unit_price) || 0), 0);
 
-      // Balance strictly includes initial / previous balance: deposits + adjustments - cost
-      const currentBalance = lifetimeDeposits + lifetimeAdjustments - lifetimeCost;
-      const initialBalance = lifetimeAdjustments;
+      // Closing Net Balance
+      const currentBalance =
+        resolvedType === "all"
+          ? lifetimeDeposits + initialBalance - lifetimeCost
+          : openingBalance + totalPeriodDeposits - totalPeriodCost;
 
       // Subject line
       if (resolvedType === "all") {
@@ -383,6 +410,8 @@ export async function POST(req: Request) {
         totalPeriodMeals,
         totalPeriodCost,
         totalPeriodDeposits,
+        openingBalance,
+        periodDepositsList,
         initialBalance,
         lifetimeDeposits,
         lifetimeCost,
@@ -486,39 +515,22 @@ export async function POST(req: Request) {
       // For manual admin button clicks, default force to true so duplicate suppression does not silently swallow the send
       const forceDispatch = force !== undefined ? Boolean(force) : true;
 
-      const gasRes = await fetch(GAS_WEBAPP_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          secret: REPORT_SHARED_SECRET,
-          action: "send_weekly",
-          force: forceDispatch,
-        }),
-        redirect: "follow",
+      const result = await executeWeeklyReportDispatch({
+        force: forceDispatch,
+        isManual: true,
+        supabaseClient: supabase,
       });
 
-      const gasData = await gasRes.json().catch(() => ({ success: false }));
-
-      if (!gasRes.ok || gasData.success === false) {
-        throw new Error(gasData.error || "Google Apps Script reported an error during dispatch.");
-      }
-
-      const result = gasData.result || {};
-      const sentCount = result.sentCount ?? 0;
-      const skippedCount = result.skippedCount ?? 0;
-      const failedCount = result.failedCount ?? 0;
-
-      let message = `Report dispatch completed: ${sentCount} sent, ${skippedCount} skipped, ${failedCount} failed.`;
-      if (sentCount > 0) {
-        message += " If not visible in Inbox, please check Spam / Promotions folder.";
-      } else if (skippedCount > 0) {
-        message += " (Reports were skipped as duplicates because they were already sent for this period. Use 'Force Re-send' to send them again).";
-      }
-
       return NextResponse.json({
-        success: true,
-        message,
-        result,
+        success: result.success,
+        message: result.message,
+        result: {
+          sentCount: result.sentCount,
+          skippedCount: result.skippedCount,
+          failedCount: result.failedCount,
+          period: result.period,
+          details: result.details,
+        },
       });
     }
 
