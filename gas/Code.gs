@@ -389,8 +389,8 @@ function setupScheduledMonitorTrigger() {
 function checkAndDispatchScheduledReports() {
   Logger.log("=== [DYNAMIC CRON CHECK] Inspecting Scheduled Time ===");
   var props = PropertiesService.getScriptProperties();
-  var appBaseUrl = props.getProperty("APP_BASE_URL");
-  var secret = props.getProperty("REPORT_SHARED_SECRET");
+  var appBaseUrl = props.getProperty("APP_BASE_URL") || "https://mill-management-delta.vercel.app";
+  var secret = props.getProperty("REPORT_SHARED_SECRET") || "mill_sec_9e21a4f08c3d7b6a12e5f804";
 
   if (appBaseUrl && appBaseUrl.trim() !== "") {
     var cronUrl = appBaseUrl.replace(/\/$/, "") + "/api/cron/weekly-report?secret=" + encodeURIComponent(secret);
@@ -401,7 +401,6 @@ function checkAndDispatchScheduledReports() {
       Logger.log("⚠️ Error pinging Next.js cron: " + err.toString());
     }
   } else {
-    // If APP_BASE_URL is not set in script properties, fallback to standard sendWeeklyReports check
     sendWeeklyReports(false, false);
   }
 }

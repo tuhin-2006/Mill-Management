@@ -51,15 +51,28 @@ async function handleCron(req: Request) {
       });
     }
 
-    // 2. Compute current Bangladesh Asia/Dhaka time (UTC+6)
+    // 2. Compute current Bangladesh Asia/Dhaka time (UTC+6) accurately using Intl.DateTimeFormat
     const now = new Date();
-    const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
-    const dhakaNow = new Date(utcMs + 6 * 3600000);
+    const dtf = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Dhaka",
+      weekday: "long",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    const parts = dtf.formatToParts(now);
+    const getPart = (type: string) => parts.find((p) => p.type === type)?.value || "";
 
-    const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    const currentDayName = daysOfWeek[dhakaNow.getUTCDay()];
-    const currentHour = dhakaNow.getUTCHours();
-    const currentMinute = dhakaNow.getUTCMinutes();
+    const currentDayName = getPart("weekday"); // "Saturday", "Friday", etc.
+    const currentHour = parseInt(getPart("hour"), 10) || 0;
+    const currentMinute = parseInt(getPart("minute"), 10) || 0;
+    const currentYear = parseInt(getPart("year"), 10) || now.getUTCFullYear();
+    const currentMonth = parseInt(getPart("month"), 10) || now.getUTCMonth() + 1;
+    const currentDay = parseInt(getPart("day"), 10) || now.getUTCDate();
     const currentTimeInMinutes = currentHour * 60 + currentMinute;
 
     const scheduledDay = (settings.weekly_report_day || "Friday").trim();
@@ -92,22 +105,27 @@ async function handleCron(req: Request) {
       });
     }
 
-    // 5. Check if today's scheduled dispatch has already run on or after scheduled time
-    const todayYear = dhakaNow.getUTCFullYear();
-    const todayMonth = dhakaNow.getUTCMonth();
-    const todayDate = dhakaNow.getUTCDate();
-
-    // Scheduled time in UTC (Asia/Dhaka is UTC+6)
-    const scheduledUtcMs = Date.UTC(todayYear, todayMonth, todayDate, scheduledHour - 6, scheduledMin, 0);
+    // 5. Check if today's scheduled weekly batch dispatch has already run on or after scheduled time
+    // Convert today's scheduled Dhaka time to UTC ISO string
+    // Asia/Dhaka is UTC+6
+    const scheduledUtcMs = Date.UTC(currentYear, currentMonth - 1, currentDay, scheduledHour - 6, scheduledMin, 0);
     const scheduledIsoString = new Date(scheduledUtcMs).toISOString();
 
-    const { data: alreadyDispatchedToday } = await supabase
+    const { data: recentLogs } = await supabase
       .from("email_logs")
-      .select("id, recipient_email, recipient_type, status, created_at")
+      .select("id, recipient_email, recipient_type, status, created_at, metadata")
       .eq("status", "sent")
       .gte("created_at", scheduledIsoString);
 
-    if (!isForce && alreadyDispatchedToday && alreadyDispatchedToday.length > 0) {
+    // Only count automated weekly batch runs (do NOT block on single on-demand statements)
+    const alreadyDispatchedToday = (recentLogs || []).filter((log) => {
+      const meta = log.metadata as { is_weekly_batch?: boolean; is_on_demand_single?: boolean } | null;
+      if (!meta) return false;
+      if (meta.is_on_demand_single) return false;
+      return meta.is_weekly_batch === true;
+    });
+
+    if (!isForce && alreadyDispatchedToday.length > 0) {
       return NextResponse.json({
         status: "already_completed_today",
         message: `Today's scheduled weekly report for ${scheduledDay} at ${scheduledTimeStr} was already dispatched (${alreadyDispatchedToday.length} emails delivered).`,
