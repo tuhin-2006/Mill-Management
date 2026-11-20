@@ -71,6 +71,9 @@ function getConfig() {
 function sendWeeklyReports(isManualRun, forceSend) {
   Logger.log("=== [START] Mill Weekly Reporting Engine ===");
 
+  var isManual = typeof isManualRun === "boolean" ? isManualRun : false;
+  var isForce = typeof forceSend === "boolean" ? forceSend : false;
+
   var config = getConfig();
   var remainingQuota = MailApp.getRemainingDailyQuota();
   Logger.log("Current Gmail daily quota remaining: " + remainingQuota + " emails");
@@ -84,8 +87,8 @@ function sendWeeklyReports(isManualRun, forceSend) {
   Logger.log("Fetching prepared weekly reports from Edge Function...");
   var requestPayload = {
     action: "prepare",
-    force: Boolean(forceSend),
-    isManualRun: Boolean(isManualRun),
+    force: Boolean(isForce),
+    isManualRun: Boolean(isManual),
   };
 
   var options = {
@@ -117,7 +120,7 @@ function sendWeeklyReports(isManualRun, forceSend) {
   var data = JSON.parse(responseText);
 
   // Safety Switch Check: If automated trigger and auto_email_enabled is FALSE, exit cleanly without sending
-  if (data.status === "safety_locked" || (!data.auto_email_enabled && !isManualRun)) {
+  if (data.status === "safety_locked" || (!data.auto_email_enabled && !isManual)) {
     Logger.log("🔒 [SAFETY LOCK ACTIVE] " + (data.message || "Automatic sending is turned OFF in Admin Settings."));
     return {
       status: "safety_locked",
@@ -153,7 +156,7 @@ function sendWeeklyReports(isManualRun, forceSend) {
     var memberName = report.member_name || recipientEmail;
 
     // Duplicate Prevention Check
-    if (report.is_duplicate && !forceSend) {
+    if (report.is_duplicate && !isForce) {
       Logger.log("⏩ [SKIPPED - DUPLICATE] " + recipientType + " (" + memberName + "): " + recipientEmail + " was already sent for this period.");
       skippedCount++;
       deliveryLogs.push({
@@ -332,7 +335,7 @@ function sendTestEmail(overrideEmail) {
  */
 function sendWeeklyReportsManually() {
   Logger.log("=== [MANUAL RUN] Initiating on-demand report send ===");
-  return sendWeeklyReports(true, false);
+  return sendWeeklyReports(true, true);
 }
 
 /**
@@ -439,7 +442,7 @@ function doPost(e) {
       });
       result = { success: true, action: "send_single_email", recipient: targetTo };
     } else {
-      var force = Boolean(body.force);
+      var force = body.force !== undefined ? Boolean(body.force) : true;
       result = sendWeeklyReports(true, force);
     }
 

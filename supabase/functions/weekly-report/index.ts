@@ -843,8 +843,19 @@ serve(async (req: Request) => {
     }));
     const sentLogs = logsRes.data || [];
 
+    // Filter sent logs: only consider logs that are from an automated weekly batch or sent on the period endDate
+    // Exclude test emails and mid-week on-demand single member statements (e.g. sent on Wed/Thu before the week closed)
+    const sentWeeklyLogs = sentLogs.filter((log: any) => {
+      if (log.recipient_type === "test") return false;
+      if (log.metadata?.is_on_demand_single) {
+        const sentDate = (log.sent_at || log.created_at || "").slice(0, 10);
+        if (sentDate < endDate!) return false;
+      }
+      return true;
+    });
+
     // Set of emails already successfully sent for this period
-    const alreadySentEmails = new Set(sentLogs.map((log: any) => log.recipient_email.toLowerCase().trim()));
+    const alreadySentEmails = new Set(sentWeeklyLogs.map((log: any) => log.recipient_email.toLowerCase().trim()));
 
     const datesInRange = getDateRange(startDate, endDate);
     const preparedReports: PreparedReport[] = [];
@@ -957,6 +968,7 @@ serve(async (req: Request) => {
         htmlBody: html,
         is_duplicate: isDuplicate,
         metadata: {
+          is_weekly_batch: true,
           totalWeeklyMeals,
           totalWeeklyCost,
           currentBalance,
@@ -1068,6 +1080,7 @@ serve(async (req: Request) => {
         htmlBody: groupHtml,
         is_duplicate: isDuplicate,
         metadata: {
+          is_weekly_batch: true,
           totalPeriodMeals,
           totalPeriodCost,
           currentGroupBalance,

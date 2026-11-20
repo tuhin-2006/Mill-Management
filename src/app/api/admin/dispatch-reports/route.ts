@@ -445,6 +445,8 @@ export async function POST(req: Request) {
         status: isSent ? "sent" : "failed",
         error_message: isSent ? null : JSON.stringify(gasData),
         metadata: {
+          is_on_demand_single: true,
+          is_weekly_batch: false,
           periodType: resolvedType,
           member_name: member.name,
           totalMeals: totalPeriodMeals,
