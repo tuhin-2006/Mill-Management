@@ -411,6 +411,12 @@ export default function SettingsPage() {
                     </span>
                   </span>
                 </div>
+
+                {autoEmailEnabled && (
+                  <p className="text-[11px] text-muted-foreground leading-relaxed pt-1.5 border-t border-border/50">
+                    💡 <strong>স্বয়ংক্রিয় টাইমার গ্যারান্টি:</strong> অ্যাডমিন প্যানেলে লগইন থাকলে বা ব্রাউজ করলে ব্যাকগ্রাউন্ডে অটোমেটিক চেক হয়। এছাড়াও ২৪/৭ কাঁটায় কাঁটায় নির্ধারিত সময়ে পৌঁছানো নিশ্চিত করতে যেকোনো ফ্রি ওয়েব ক্রন (যেমন: <a href="https://cron-job.org" target="_blank" rel="noreferrer" className="text-primary underline font-medium">cron-job.org</a>) এ প্রতি ৫ মিনিটে পিং সেট করে রাখতে পারেন।
+                  </p>
+                )}
               </div>
 
               <div className="flex justify-end pt-2">

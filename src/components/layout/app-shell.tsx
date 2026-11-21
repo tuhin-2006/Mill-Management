@@ -121,6 +121,27 @@ function AppShellInner({
   // Automatic logout on inactivity (15 mins with 1 min advance alert)
   useInactivityLogout();
 
+  // Automated background schedule guard (fallback trigger when admin visits app)
+  React.useEffect(() => {
+    if (userRole !== "admin") return;
+    const lastCheck = sessionStorage.getItem("mill_cron_checked_at");
+    const now = Date.now();
+    // Only check once every 5 minutes per browser session
+    if (lastCheck && now - Number(lastCheck) < 5 * 60 * 1000) return;
+    sessionStorage.setItem("mill_cron_checked_at", String(now));
+
+    fetch("/api/cron/weekly-report?secret=mill_sec_9e21a4f08c3d7b6a12e5f804", { method: "GET" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.status === "dispatched") {
+          toast.success(`সাপ্তাহিক রিপোর্ট স্বয়ংক্রিয়ভাবে প্রেরিত হয়েছে (${data.sentCount} জন পেয়েছেন)!`, {
+            duration: 6000,
+          });
+        }
+      })
+      .catch(() => {});
+  }, [userRole]);
+
   // Client-side route guard for non-admin roles
   const isUnauthorized = React.useMemo(() => {
     if (userRole === "member") {

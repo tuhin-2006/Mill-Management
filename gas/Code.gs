@@ -367,15 +367,15 @@ function checkGmailQuota() {
  * exactly at the configured time (e.g., 20:00, 22:32, etc.) with zero hardcoding!
  */
 function setupScheduledMonitorTrigger() {
-  Logger.log("=== Setting up Dynamic Schedule Monitor Trigger (Every 15 Minutes) ===");
+  Logger.log("=== Setting up Dynamic Schedule Monitor Trigger (Every 5 Minutes) ===");
   removeWeeklyTrigger();
 
   ScriptApp.newTrigger("checkAndDispatchScheduledReports")
     .timeBased()
-    .everyMinutes(15)
+    .everyMinutes(5)
     .create();
 
-  Logger.log("✅ Dynamic monitor trigger successfully registered! It runs every 15 minutes to match web settings.");
+  Logger.log("✅ Dynamic monitor trigger successfully registered! It runs every 5 minutes to match web settings.");
 }
 
 /**
@@ -471,6 +471,12 @@ function doPost(e) {
       var targetEmail = body.targetEmail || config.adminTestEmail;
       sendTestEmail(targetEmail);
       result = { success: true, action: "test_preview", targetEmail: targetEmail };
+    } else if (action === "setup_trigger") {
+      setupScheduledMonitorTrigger();
+      result = { success: true, action: "setup_trigger", message: "Google Apps Script time-driven monitor trigger registered successfully (runs every 5 minutes)." };
+    } else if (action === "ping_cron") {
+      checkAndDispatchScheduledReports();
+      result = { success: true, action: "ping_cron", message: "Pinged Next.js cron from Google Apps Script." };
     } else if (action === "send_single_email") {
       if (!body.to || !body.subject || !body.htmlBody) {
         throw new Error("Missing required fields (to, subject, or htmlBody) in payload");
